@@ -41,6 +41,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import discord
+from discord import app_commands
 from discord.ext import commands, tasks
 
 from services.storage import (
@@ -87,7 +88,7 @@ SHOP_ITEMS: list[ShopItem] = [
     ShopItem("nickname", "Custom Nickname",  30,  "Set your server nickname for 7 days",    "🎭", "cosmetic",  7),
     ShopItem("colour",   "Role Colour",      50,  "Pick a cosmetic colour role (permanent)", "🎨", "cosmetic",  None),
     ShopItem("vip",      "VIP Badge",       100,  "VIP cosmetic role for 30 days",          "👑", "cosmetic",  30),
-    ShopItem("waiver",   "Cooldown Waiver",  20,  "Skip your next .rep cooldown (one-use)", "⚡", "economy",   None),
+    ShopItem("waiver",   "Cooldown Waiver",  20,  "Skip your next /rep cooldown (one-use)", "⚡", "economy",   None),
     ShopItem("pwned",    "pwned",           300,  "Ultimate prestige role — permanently 💀","💀", "prestige",  None),
 ]
 
@@ -132,7 +133,7 @@ def _shop_category_embed(category: str) -> discord.Embed:
         description="\n\n".join(lines) or "No items in this category.",
         color=discord.Color.blurple(),
     )
-    embed.set_footer(text="Use .myrep to check your balance")
+    embed.set_footer(text="Use /myrep to check your balance")
     return embed
 
 
@@ -149,7 +150,7 @@ def _shop_main_embed() -> discord.Embed:
         ),
         color=discord.Color.blurple(),
     )
-    embed.set_footer(text="Use .myrep to check your rep balance")
+    embed.set_footer(text="Use /myrep to check your rep balance")
     return embed
 
 
@@ -168,7 +169,7 @@ class _OwnedView(discord.ui.View):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self._member.id:
             await interaction.response.send_message(
-                "❌ This isn't your shop session! Open your own with `.shop`.",
+                "❌ This isn't your shop session! Open your own with `/shop`.",
                 ephemeral=True,
             )
             return False
@@ -407,14 +408,20 @@ class ShopCog(commands.Cog, name="Shop"):
         self.expire_perks.cancel()
 
     # ------------------------------------------------------------------
-    # .shop command
+    # /shop command
     # ------------------------------------------------------------------
 
-    @commands.command(name="shop")
-    async def shop(self, ctx: commands.Context) -> None:
+    @app_commands.command(name="shop", description="Open the community shop to spend your rep points.")
+    async def shop(self, interaction: discord.Interaction) -> None:
         """Open the community shop to spend your rep points."""
-        view = ShopView(cog=self, member=ctx.author)
-        await ctx.send(embed=_shop_main_embed(), view=view)
+        if not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message(
+                "❌ This command must be used inside a server.", ephemeral=True
+            )
+            return
+        member = interaction.user
+        view = ShopView(cog=self, member=member)
+        await interaction.response.send_message(embed=_shop_main_embed(), view=view)
 
     # ------------------------------------------------------------------
     # Central purchase processor
@@ -607,7 +614,7 @@ class ShopCog(commands.Cog, name="Shop"):
             if user_id in waivers:
                 raise PurchaseError(
                     "You already have an unused Cooldown Waiver! "
-                    "Use it with `.rep @user` before buying another."
+                    "Use it with `/rep @user` before buying another."
                 )
 
             waivers.append(user_id)
@@ -615,7 +622,7 @@ class ShopCog(commands.Cog, name="Shop"):
 
         return (
             "⚡ **Cooldown Waiver** activated!\n"
-            "Your next `.rep` will skip the 24-hour cooldown. Use it wisely!"
+            "Your next `/rep` will skip the 24-hour cooldown. Use it wisely!"
         )
 
     async def _apply_pwned(self, member: discord.Member, item: ShopItem, extra: dict) -> str:

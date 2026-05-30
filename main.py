@@ -74,6 +74,13 @@ class RootAIBot(commands.Bot):
             except Exception:  # pylint: disable=broad-except
                 log.exception("Failed to load extension: %s", ext)
 
+        # Copy all globally-registered Cog commands into the guild so they
+        # appear instantly (guild sync propagates immediately; global takes ~1 hour).
+        guild = discord.Object(id=config.GUILD_ID)
+        self.tree.copy_global_to(guild=guild)
+        synced = await self.tree.sync(guild=guild)
+        log.info("Synced %d slash command(s) to guild %d", len(synced), config.GUILD_ID)
+
     async def on_ready(self) -> None:
         log.info("Logged in as %s (ID: %s)", self.user, self.user.id)
         log.info("Bot prefix: '%s'", config.BOT_PREFIX)

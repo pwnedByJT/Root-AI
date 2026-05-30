@@ -25,9 +25,9 @@ Root-AI/
 │   ├── security.py          ← SSH nmap tool + registers with LLM manager
 │   ├── moderation.py        ← Role/kick/ban tools + registers with LLM manager
 │   ├── twitch.py            ← Twitch monitor + Hype Train milestones + status tool
-│   ├── rep.py               ← Community rep system (.rep, .myrep, .leaderboard)
+│   ├── rep.py               ← Community rep system (/rep, /myrep, /leaderboard)
 │   ├── shop.py              ← Rep-powered Discord GUI shop + perk expiry task
-│   └── ai_chat.py           ← on_message gate, mention handler, .ping command
+│   └── ai_chat.py           ← on_message gate, mention handler, /ping command
 └── bot.py                   ← Original monolith (kept as reference)
 ```
 
@@ -115,6 +115,7 @@ Create a `.env` file in the project root:
 # Discord
 ROOT_AI_DISCORD_TOKEN=your_discord_bot_token_here
 BOT_PREFIX=.
+DISCORD_GUILD_ID=your_discord_server_id_here
 
 # Ollama / LLM
 LOCAL_LLM_URL=http://localhost:11434/v1
@@ -165,13 +166,13 @@ python main.py
 - App Access Token is cached and auto-refreshed (~60-day TTL)
 
 ### ⭐ Rep System — `cogs/rep.py`
-Community reputation points — driven entirely by prefix commands (no LLM involvement).
+Community reputation points — driven entirely by slash commands (no LLM involvement).
 
 | Command | Description |
 |---|---|
-| `.rep @user` | Give one rep point to a member. 24-hour cooldown per giver (regardless of target). |
-| `.myrep` | Show your own reputation count. |
-| `.leaderboard` (or `.top`) | Show the top 10 community members by rep score. |
+| `/rep @user` | Give one rep point to a member. 24-hour cooldown per giver (regardless of target). |
+| `/myrep` | Show your own reputation count. |
+| `/leaderboard` (or `/top`) | Show the top 10 community members by rep score. |
 
 - **Self-rep prevention** — you cannot give rep to yourself
 - **24-hour cooldown** — one rep given per day, period
@@ -181,14 +182,14 @@ Community reputation points — driven entirely by prefix commands (no LLM invol
 ### 🛍️ Shop System — `cogs/shop.py`
 A Discord GUI-based community shop where members spend rep points on cosmetic perks — no admin rights granted through any item.
 
-**Open with:** `.shop`
+**Open with:** `/shop`
 
 | Item | Cost | Duration | What it does |
 |---|---|---|---|
 | 🎭 Custom Nickname | 30 rep | 7 days | Bot sets your server nickname; reverts automatically |
 | 🎨 Role Colour | 50 rep | Permanent | Cosmetic coloured role (6 colour options); replaces previous colour |
 | 👑 VIP Badge | 100 rep | 30 days | Cosmetic VIP role; removed automatically on expiry |
-| ⚡ Cooldown Waiver | 20 rep | One-use | Skip the 24-hour `.rep` cooldown once |
+| ⚡ Cooldown Waiver | 20 rep | One-use | Skip the 24-hour `/rep` cooldown once |
 | 💀 pwned | 300 rep | Permanent | Ultimate prestige role |
 
 - **Zero server permissions** — all bot-created roles have `permissions=0` (purely cosmetic)
