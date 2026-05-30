@@ -27,6 +27,7 @@ import logging
 import discord
 from discord.ext import commands
 
+import config
 from services.llm_manager import ChatContextManager
 
 log = logging.getLogger("root_ai.ai_chat")
@@ -62,8 +63,7 @@ class AIChatCog(commands.Cog, name="AI Chat"):
         if message.author.name.lower() != "pwnedbyjt":
             if self.bot.user and self.bot.user.mentioned_in(message):
                 await message.reply(
-                    "Access Denied: Please get with <@!123456789> if you want me to talk with you."
-                    # Note: swap 123456789 with your actual Discord user ID for the ping to resolve.
+                    f"Access Denied: Please get with <@{config.BOT_OWNER_ID}> if you want me to talk with you."
                 )
             return
 

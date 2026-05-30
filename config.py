@@ -14,6 +14,7 @@ load_dotenv()
 # ── Discord ──────────────────────────────────────────────────────────────────
 DISCORD_TOKEN: str = os.getenv("ROOT_AI_DISCORD_TOKEN") or os.getenv("DISCORD_TOKEN", "")
 BOT_PREFIX: str = os.getenv("BOT_PREFIX", ".")
+BOT_OWNER_ID: int = 389271525485707274  # pwnedByJT — used for @mentions in access-denied replies
 
 if not DISCORD_TOKEN:
     raise EnvironmentError(

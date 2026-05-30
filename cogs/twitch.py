@@ -19,6 +19,7 @@ import discord
 from discord.ext import commands, tasks
 
 from config import (
+    BOT_OWNER_ID,
     TWITCH_BROADCASTER_LOGIN,
     TWITCH_CLIENT_ID,
     TWITCH_CLIENT_SECRET,
@@ -238,7 +239,7 @@ class TwitchCog(commands.Cog, name="Twitch"):
                         color=discord.Color.purple(),
                     )
                     await channel.send(
-                        content="@everyone <@389271525485707274>",
+                        content=f"@everyone <@{BOT_OWNER_ID}>",
                         embed=embed,
                     )
                 else:
