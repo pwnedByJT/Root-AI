@@ -14,16 +14,19 @@ Root-AI/
 ├── .env                     ← Secrets (never committed — see .gitignore)
 ├── data/
 │   ├── .gitkeep             ← Keeps the data/ directory tracked by git
-│   └── rep.json             ← Runtime-generated rep scores (excluded by .gitignore)
+│   ├── rep.json             ← Runtime-generated rep scores + waivers (excluded by .gitignore)
+│   └── shop.json            ← Runtime-generated active perk records (excluded by .gitignore)
 ├── services/
 │   ├── __init__.py
-│   └── llm_manager.py       ← ChatContextManager + tool registry (Discord-agnostic)
+│   ├── llm_manager.py       ← ChatContextManager + tool registry (Discord-agnostic)
+│   └── storage.py           ← Shared module-level locks + JSON I/O helpers (rep + shop)
 ├── cogs/
 │   ├── __init__.py
 │   ├── security.py          ← SSH nmap tool + registers with LLM manager
 │   ├── moderation.py        ← Role/kick/ban tools + registers with LLM manager
 │   ├── twitch.py            ← Twitch monitor + Hype Train milestones + status tool
 │   ├── rep.py               ← Community rep system (.rep, .myrep, .leaderboard)
+│   ├── shop.py              ← Rep-powered Discord GUI shop + perk expiry task
 │   └── ai_chat.py           ← on_message gate, mention handler, .ping command
 └── bot.py                   ← Original monolith (kept as reference)
 ```
@@ -174,6 +177,27 @@ Community reputation points — driven entirely by prefix commands (no LLM invol
 - **24-hour cooldown** — one rep given per day, period
 - **Persistent storage** — scores saved to `data/rep.json` (excluded from git)
 - **Thread-safe I/O** — all file access is serialised via `asyncio.Lock` and offloaded to a thread pool
+
+### 🛍️ Shop System — `cogs/shop.py`
+A Discord GUI-based community shop where members spend rep points on cosmetic perks — no admin rights granted through any item.
+
+**Open with:** `.shop`
+
+| Item | Cost | Duration | What it does |
+|---|---|---|---|
+| 🎭 Custom Nickname | 30 rep | 7 days | Bot sets your server nickname; reverts automatically |
+| 🎨 Role Colour | 50 rep | Permanent | Cosmetic coloured role (6 colour options); replaces previous colour |
+| 👑 VIP Badge | 100 rep | 30 days | Cosmetic VIP role; removed automatically on expiry |
+| ⚡ Cooldown Waiver | 20 rep | One-use | Skip the 24-hour `.rep` cooldown once |
+| 💀 pwned | 300 rep | Permanent | Ultimate prestige role |
+
+- **Zero server permissions** — all bot-created roles have `permissions=0` (purely cosmetic)
+- **Discord UI navigation** — dropdown category selector → item buttons → confirm/cancel or text modal
+- **Nickname modal** — opens a Discord text input modal so you type your desired nickname in-UI
+- **Colour picker** — 6 emoji-labelled buttons (Red, Blue, Green, Gold, Purple, Cyan); replaces any existing colour role (no stacking)
+- **Perk expiry** — background task runs every 10 minutes, removes expired VIP roles and reverts expired nicknames automatically
+- **Atomic refunds** — if Discord raises a permission error after rep is deducted, the rep is refunded immediately
+- **Cooldown waivers** stored in `rep.json` so the shop never needs to hold two locks simultaneously (deadlock-free)
 
 ### 🤖 AI Chat — `cogs/ai_chat.py`
 - **Access gate** — only the authorised owner (`pwnedByJT`) can interact with the bot; all other `@mentions` receive an access-denied reply

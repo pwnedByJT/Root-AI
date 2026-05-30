@@ -40,6 +40,7 @@ EXTENSIONS = [
     "cogs.moderation",
     "cogs.twitch",
     "cogs.rep",
+    "cogs.shop",
     "cogs.ai_chat",
 ]
 
