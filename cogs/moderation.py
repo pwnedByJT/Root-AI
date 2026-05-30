@@ -2,6 +2,12 @@
 cogs/moderation.py
 Discord role management and moderation actions (add role, remove role, kick, ban).
 
+Supported roles
+---------------
+Only roles in ALLOWED_ROLES may be assigned or removed via the LLM pipeline.
+The bot's own highest role MUST sit above all five roles in the Discord role
+hierarchy, otherwise Discord will raise Forbidden on any manage-roles call.
+
 Each action is implemented as a standalone async function, then wrapped in a
 thin handler closure and registered with the ChatContextManager tool registry.
 """
@@ -18,15 +24,30 @@ from services.llm_manager import ChatContextManager
 
 log = logging.getLogger("root_ai.moderation")
 
+# ---------------------------------------------------------------------------
+# Allowed roles — only these may be assigned or removed via the bot
+# ---------------------------------------------------------------------------
+
+ALLOWED_ROLES: list[str] = ["Newcomer", "Alumni", "Support", "Admin", "R6"]
+
 
 # ---------------------------------------------------------------------------
 # Core tool logic
 # ---------------------------------------------------------------------------
 
 
-async def remove_user_role(target_user: str, message: discord.Message) -> str:
-    """Strips the 'Admin' role from a Discord user."""
-    log.info("DISCORD API: Attempting to remove admin from %s", target_user)
+async def remove_user_role(target_user: str, role_name: str, message: discord.Message) -> str:
+    """Strips *role_name* from a Discord user (must be in ALLOWED_ROLES)."""
+    log.info("DISCORD API: Attempting to remove role '%s' from %s", role_name, target_user)
+
+    # Allowlist check (case-insensitive)
+    normalised = next((r for r in ALLOWED_ROLES if r.lower() == role_name.lower()), None)
+    if not normalised:
+        return (
+            f"Execution Failed: '{role_name}' is not a manageable role. "
+            f"Allowed roles: {', '.join(ALLOWED_ROLES)}."
+        )
+
     try:
         clean_id_match = re.search(r"\d+", target_user)
         if not clean_id_match:
@@ -36,15 +57,17 @@ async def remove_user_role(target_user: str, message: discord.Message) -> str:
         if not member:
             return "Execution Failed: Could not locate that user in the current server."
 
-        role_name = "Admin"
-        target_role = discord.utils.get(message.guild.roles, name=role_name)
+        # Case-insensitive role lookup against guild roles
+        target_role = discord.utils.find(
+            lambda r: r.name.lower() == normalised.lower(), message.guild.roles
+        )
         if not target_role:
-            return f"Execution Failed: A role named '{role_name}' does not exist on this server."
+            return f"Execution Failed: A role named '{normalised}' does not exist on this server."
 
         if target_role in member.roles:
             await member.remove_roles(target_role)
-            return f"Success: {role_name} access revoked from {member.mention}."
-        return f"Status: {member.mention} does not currently hold the {role_name} role."
+            return f"Success: **{normalised}** role removed from {member.mention}."
+        return f"Status: {member.mention} does not currently hold the **{normalised}** role."
 
     except discord.Forbidden:
         return (
@@ -56,9 +79,18 @@ async def remove_user_role(target_user: str, message: discord.Message) -> str:
         return f"Execution Failed: Internal API error - {exc}"
 
 
-async def add_user_role(target_user: str, message: discord.Message) -> str:
-    """Grants the 'Admin' role to a Discord user."""
-    log.info("DISCORD API: Attempting to add admin to %s", target_user)
+async def add_user_role(target_user: str, role_name: str, message: discord.Message) -> str:
+    """Grants *role_name* to a Discord user (must be in ALLOWED_ROLES)."""
+    log.info("DISCORD API: Attempting to add role '%s' to %s", role_name, target_user)
+
+    # Allowlist check (case-insensitive)
+    normalised = next((r for r in ALLOWED_ROLES if r.lower() == role_name.lower()), None)
+    if not normalised:
+        return (
+            f"Execution Failed: '{role_name}' is not a manageable role. "
+            f"Allowed roles: {', '.join(ALLOWED_ROLES)}."
+        )
+
     try:
         clean_id_match = re.search(r"\d+", target_user)
         if not clean_id_match:
@@ -68,15 +100,17 @@ async def add_user_role(target_user: str, message: discord.Message) -> str:
         if not member:
             return "Execution Failed: Could not locate that user in the current server."
 
-        role_name = "Admin"
-        target_role = discord.utils.get(message.guild.roles, name=role_name)
+        # Case-insensitive role lookup against guild roles
+        target_role = discord.utils.find(
+            lambda r: r.name.lower() == normalised.lower(), message.guild.roles
+        )
         if not target_role:
-            return f"Execution Failed: A role named '{role_name}' does not exist on this server."
+            return f"Execution Failed: A role named '{normalised}' does not exist on this server."
 
         if target_role not in member.roles:
             await member.add_roles(target_role)
-            return f"Success: {role_name} access granted to {member.mention}."
-        return f"Status: {member.mention} already holds the {role_name} role."
+            return f"Success: **{normalised}** role granted to {member.mention}."
+        return f"Status: {member.mention} already holds the **{normalised}** role."
 
     except discord.Forbidden:
         return (
@@ -146,19 +180,27 @@ REMOVE_ROLE_TOOL_SPEC: dict = {
     "type": "function",
     "function": {
         "name": "remove_user_role",
-        "description": "Revokes administrative privileges or roles from a specific Discord user.",
+        "description": (
+            "Removes a specific role from a Discord user. "
+            "Use this when asked to demote, revoke, or remove a role from someone."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
                 "target_user": {
                     "type": "string",
                     "description": (
-                        "The Discord mention or username of the person losing access "
+                        "The Discord mention or username of the person losing the role "
                         "(e.g., <@123456789>)."
                     ),
-                }
+                },
+                "role_name": {
+                    "type": "string",
+                    "description": "The exact role to remove.",
+                    "enum": ALLOWED_ROLES,
+                },
             },
-            "required": ["target_user"],
+            "required": ["target_user", "role_name"],
         },
     },
 }
@@ -167,19 +209,27 @@ ADD_ROLE_TOOL_SPEC: dict = {
     "type": "function",
     "function": {
         "name": "add_user_role",
-        "description": "Grants administrative privileges or roles to a specific Discord user.",
+        "description": (
+            "Grants a specific role to a Discord user. "
+            "Use this when asked to promote, assign, or give a role to someone."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
                 "target_user": {
                     "type": "string",
                     "description": (
-                        "The Discord mention or username of the person gaining access "
+                        "The Discord mention or username of the person receiving the role "
                         "(e.g., <@123456789>)."
                     ),
-                }
+                },
+                "role_name": {
+                    "type": "string",
+                    "description": "The exact role to grant.",
+                    "enum": ALLOWED_ROLES,
+                },
             },
-            "required": ["target_user"],
+            "required": ["target_user", "role_name"],
         },
     },
 }
@@ -248,10 +298,18 @@ class ModerationCog(commands.Cog, name="Moderation"):
 
     def _register_tools(self) -> None:
         async def _remove_role_handler(args: dict, message: discord.Message) -> str:
-            return await remove_user_role(args.get("target_user", ""), message)
+            return await remove_user_role(
+                args.get("target_user", ""),
+                args.get("role_name", ""),
+                message,
+            )
 
         async def _add_role_handler(args: dict, message: discord.Message) -> str:
-            return await add_user_role(args.get("target_user", ""), message)
+            return await add_user_role(
+                args.get("target_user", ""),
+                args.get("role_name", ""),
+                message,
+            )
 
         async def _kick_handler(args: dict, message: discord.Message) -> str:
             return await kick_user(args.get("target_user", ""), message)
