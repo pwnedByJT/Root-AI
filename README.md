@@ -10,6 +10,8 @@ A production-ready Discord bot with a **local Ollama LLM integration**, SSH-base
 Root-AI/
 ├── main.py                  ← Entry point: bot init, setup_hook, on_ready
 ├── config.py                ← Centralised env var loading (single source of truth)
+├── requirements.txt         ← Python package dependencies
+├── .env                     ← Secrets (never committed — see .gitignore)
 ├── services/
 │   ├── __init__.py
 │   └── llm_manager.py       ← ChatContextManager + tool registry (Discord-agnostic)
@@ -87,7 +89,7 @@ flowchart TD
 ### Install dependencies
 
 ```bash
-pip install discord.py openai aiohttp asyncssh python-dotenv
+pip install -r requirements.txt
 ```
 
 ---
@@ -135,8 +137,10 @@ python main.py
 - Triggered by the LLM when the user asks for a network scan, audit, or socket map
 
 ### 🛡️ Moderation — `cogs/moderation.py`
-- **Add / Remove** the `Admin` role from any server member
+- **Add / Remove** any of the following roles via natural language: `Newcomer`, `Alumni`, `Support`, `Admin`, `R6`
 - **Kick** or **Ban** users with a single natural-language request
+- Role names are validated against an allowlist before any Discord API call — the LLM cannot assign arbitrary roles
+- If no role is specified, Root AI will ask for clarification before acting
 - All actions are gated by Discord's own permission hierarchy
 
 ### 📺 Twitch — `cogs/twitch.py`
@@ -177,7 +181,7 @@ self._chat.register_tool("my_tool_name", my_handler, MY_TOOL_SPEC)
 |---|---|
 | Read Messages / View Channels | All |
 | Send Messages | All |
-| Manage Roles | `moderation.py` — add/remove Admin role |
+| Manage Roles | `moderation.py` — add/remove Newcomer, Alumni, Support, Admin, R6 roles |
 | Kick Members | `moderation.py` — kick command |
 | Ban Members | `moderation.py` — ban command |
 | Message Content Intent | `ai_chat.py` — reading @mention content |

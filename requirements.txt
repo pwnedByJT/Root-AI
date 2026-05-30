@@ -1,0 +1,17 @@
+# Root AI — Python dependencies
+# Install with: pip install -r requirements.txt
+
+# Discord bot framework (2.x required for Cogs, setup_hook, async load_extension)
+discord.py>=2.3.0
+
+# OpenAI-compatible client — used to talk to local Ollama gateway
+openai>=1.30.0
+
+# Async HTTP — Twitch Helix API calls
+aiohttp>=3.9.0
+
+# Async SSH — remote nmap execution on Parrot OS WSL
+asyncssh>=2.14.0
+
+# Environment variable loading from .env file
+python-dotenv>=1.0.0
