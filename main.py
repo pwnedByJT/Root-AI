@@ -39,6 +39,7 @@ EXTENSIONS = [
     "cogs.security",
     "cogs.moderation",
     "cogs.twitch",
+    "cogs.rep",
     "cogs.ai_chat",
 ]
 

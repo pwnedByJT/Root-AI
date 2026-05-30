@@ -1,0 +1,2 @@
+# This file keeps the data/ directory tracked by git.
+# rep.json is generated at runtime and excluded via .gitignore.

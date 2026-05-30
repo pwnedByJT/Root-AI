@@ -1,12 +1,27 @@
 """
 cogs/twitch.py
-Twitch live-status tool + background monitor.
+Twitch live-status tool + background monitor + Hype Train milestone alerts.
 
 Responsibilities
 ----------------
 * ``check_twitch_status`` — on-demand Helix API query (registered as an LLM tool).
-* ``TwitchCog.twitch_monitor`` — ``@tasks.loop`` that polls every 3 minutes and
-  posts a @everyone alert to the configured channel when the stream goes live.
+* ``TwitchCog.twitch_monitor`` — ``@tasks.loop`` that polls every 3 minutes:
+    - Posts a @everyone alert to the configured channel when the stream goes live.
+    - Fires a viewer-milestone embed (Hype Train) each time the live viewer count
+      crosses a threshold in VIEWER_MILESTONES for the first time in that stream.
+    - Resets milestone tracking when the stream ends so thresholds can fire again
+      on the next broadcast.
+
+Hype Train design
+-----------------
+* Milestones are one-shot per stream: once fired they are added to
+  ``_milestones_fired`` and never re-fire, even if viewer count dips then
+  re-crosses the threshold.
+* The milestone set is reset on the live → offline transition.
+* If the bot restarts mid-stream, historical milestones will re-fire once
+  (acceptable trade-off for a home-lab bot; persist the set to disk if undesired).
+* Milestone embeds do NOT include @everyone — the initial live alert already
+  handles the broadcast ping.
 """
 
 from __future__ import annotations
@@ -28,6 +43,13 @@ from config import (
 from services.llm_manager import ChatContextManager
 
 log = logging.getLogger("root_ai.twitch")
+
+# ---------------------------------------------------------------------------
+# Hype Train — viewer-count milestones (fires once per stream per threshold)
+# Kept intentionally low for a new/small streamer.
+# ---------------------------------------------------------------------------
+
+VIEWER_MILESTONES: list[int] = [5, 10, 15, 25, 35, 50, 75, 100]
 
 # ---------------------------------------------------------------------------
 # Token cache (module-level so it survives Cog reloads within a session)
@@ -157,17 +179,21 @@ TWITCH_STATUS_TOOL_SPEC: dict = {
 
 class TwitchCog(commands.Cog, name="Twitch"):
     """
-    Registers the Twitch status tool and runs the background live monitor.
+    Registers the Twitch status tool and runs the background live monitor
+    with Hype Train viewer-milestone alerts.
 
-    The ``_was_live`` flag is instance-level (not a module global) so it resets
-    cleanly on Cog reload without losing the cross-restart live-state edge
-    detection (acceptable trade-off for a home-lab bot).
+    Instance state
+    --------------
+    _was_live       — last known live state; resets on Cog reload (acceptable).
+    _milestones_fired — milestones that have already been announced this stream;
+                       cleared on live → offline transition.
     """
 
     def __init__(self, bot: commands.Bot, chat_manager: ChatContextManager) -> None:
         self.bot = bot
         self._chat = chat_manager
         self._was_live: bool = False
+        self._milestones_fired: set[int] = set()
         self._register_tools()
 
     def _register_tools(self) -> None:
@@ -197,8 +223,12 @@ class TwitchCog(commands.Cog, name="Twitch"):
     async def twitch_monitor(self) -> None:
         """
         Polls the Twitch Helix API every 3 minutes.
-        Posts a @everyone alert to TWITCH_NOTIFY_CHANNEL_ID on the
-        offline → live transition only.
+
+        - Fires a @everyone embed alert on the offline → live transition.
+        - Fires a Hype Train milestone embed each time viewer count first crosses
+          a threshold in VIEWER_MILESTONES (no @everyone — broadcast already done).
+        - Resets ``_milestones_fired`` on the live → offline transition so
+          thresholds can fire again next stream.
         """
         log.info("TWITCH MONITOR: Polling live status for '%s'", TWITCH_BROADCASTER_LOGIN)
 
@@ -217,10 +247,11 @@ class TwitchCog(commands.Cog, name="Twitch"):
                     resp.raise_for_status()
                     data = await resp.json()
 
-            is_live: bool = bool(data.get("data"))
+            stream_data = data.get("data", [])
+            is_live: bool = bool(stream_data)
 
+            # ── offline → live: post @everyone alert ────────────────────
             if is_live and not self._was_live:
-                # Transition detected: offline → live
                 log.info(
                     "TWITCH MONITOR: '%s' just went live — posting alert.",
                     TWITCH_BROADCASTER_LOGIN,
@@ -248,6 +279,35 @@ class TwitchCog(commands.Cog, name="Twitch"):
                         TWITCH_NOTIFY_CHANNEL_ID,
                     )
 
+            # ── live → offline: reset milestone tracking ─────────────────
+            if not is_live and self._was_live:
+                log.info(
+                    "TWITCH MONITOR: '%s' went offline — resetting Hype Train milestones.",
+                    TWITCH_BROADCASTER_LOGIN,
+                )
+                self._milestones_fired = set()
+
+            # ── Hype Train: check viewer milestones while live ───────────
+            if is_live and stream_data:
+                viewer_count: int = stream_data[0].get("viewer_count", 0)
+                log.debug(
+                    "TWITCH MONITOR: Live viewer count = %d (milestones fired: %s)",
+                    viewer_count,
+                    self._milestones_fired,
+                )
+
+                channel = self.bot.get_channel(TWITCH_NOTIFY_CHANNEL_ID)
+                for milestone in VIEWER_MILESTONES:
+                    if viewer_count >= milestone and milestone not in self._milestones_fired:
+                        self._milestones_fired.add(milestone)
+                        log.info(
+                            "TWITCH HYPE TRAIN: Milestone %d viewers reached (%d live).",
+                            milestone,
+                            viewer_count,
+                        )
+                        if channel:
+                            await self._post_hype_milestone(channel, milestone, viewer_count)
+
             self._was_live = is_live
 
         except aiohttp.ClientResponseError as exc:
@@ -263,6 +323,39 @@ class TwitchCog(commands.Cog, name="Twitch"):
     async def _before_twitch_monitor(self) -> None:
         """Block the task until the bot is fully connected."""
         await self.bot.wait_until_ready()
+
+    # ------------------------------------------------------------------
+    # Hype Train helper
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _post_hype_milestone(
+        channel: discord.abc.Messageable,
+        milestone: int,
+        current_viewers: int,
+    ) -> None:
+        """Post a Hype Train milestone embed to the notification channel."""
+        # Pick a flavour string that scales with the milestone
+        if milestone < 15:
+            flavor = "The stream is heating up! 🔥"
+        elif milestone < 35:
+            flavor = "Things are getting spicy — keep it rolling! 🌶️"
+        elif milestone < 75:
+            flavor = "The Hype Train has left the station! 🚂"
+        else:
+            flavor = "MAXIMUM HYPE — this is incredible! 🎉🎉🎉"
+
+        embed = discord.Embed(
+            title=f"🚂 Hype Train — {milestone} Viewers!",
+            description=(
+                f"**{TWITCH_BROADCASTER_LOGIN}** just hit **{milestone} concurrent viewers**!\n\n"
+                f"👁️ **Current viewers:** {current_viewers:,}\n\n"
+                f"{flavor}\n\n"
+                f"[🟣 Watch on Twitch](https://twitch.tv/pwnedByJT)"
+            ),
+            color=discord.Color.orange(),
+        )
+        await channel.send(embed=embed)
 
 
 async def setup(bot: commands.Bot) -> None:

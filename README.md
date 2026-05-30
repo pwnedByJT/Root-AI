@@ -12,6 +12,9 @@ Root-AI/
 ├── config.py                ← Centralised env var loading (single source of truth)
 ├── requirements.txt         ← Python package dependencies
 ├── .env                     ← Secrets (never committed — see .gitignore)
+├── data/
+│   ├── .gitkeep             ← Keeps the data/ directory tracked by git
+│   └── rep.json             ← Runtime-generated rep scores (excluded by .gitignore)
 ├── services/
 │   ├── __init__.py
 │   └── llm_manager.py       ← ChatContextManager + tool registry (Discord-agnostic)
@@ -19,7 +22,8 @@ Root-AI/
 │   ├── __init__.py
 │   ├── security.py          ← SSH nmap tool + registers with LLM manager
 │   ├── moderation.py        ← Role/kick/ban tools + registers with LLM manager
-│   ├── twitch.py            ← Twitch monitor background task + status tool
+│   ├── twitch.py            ← Twitch monitor + Hype Train milestones + status tool
+│   ├── rep.py               ← Community rep system (.rep, .myrep, .leaderboard)
 │   └── ai_chat.py           ← on_message gate, mention handler, .ping command
 └── bot.py                   ← Original monolith (kept as reference)
 ```
@@ -67,6 +71,12 @@ flowchart TD
         V([TwitchCog.twitch_monitor\nevery 3 minutes]) --> W{Channel\njust went live?}
         W -- Yes --> X([Post @everyone alert\nwith embed])
         W -- No --> V
+        V --> HT{Viewer count\ncrossed milestone?}
+        HT -- Yes --> HTF([Post Hype Train\nmilestone embed])
+        HT -- No --> V
+        V --> OFF{Just went\noffline?}
+        OFF -- Yes --> RESET([Reset milestone\ntracker])
+        OFF -- No --> V
     end
 
     style services/llm_manager.py fill:#1e3a5f,color:#ffffff,stroke:#4a90d9
@@ -146,7 +156,24 @@ python main.py
 ### 📺 Twitch — `cogs/twitch.py`
 - **On-demand status check** — ask the bot if the stream is live
 - **Background monitor** — polls every 3 minutes and posts a `@everyone` alert with an embed the moment the channel transitions from offline → live
+- **🚂 Hype Train** — fires a milestone embed (no @everyone spam) each time concurrent viewers first cross a threshold: **5 → 10 → 15 → 25 → 35 → 50 → 75 → 100**
+  - Milestones are one-shot per stream — no re-fires if viewers dip and recover
+  - Tracking resets automatically when the stream ends
 - App Access Token is cached and auto-refreshed (~60-day TTL)
+
+### ⭐ Rep System — `cogs/rep.py`
+Community reputation points — driven entirely by prefix commands (no LLM involvement).
+
+| Command | Description |
+|---|---|
+| `.rep @user` | Give one rep point to a member. 24-hour cooldown per giver (regardless of target). |
+| `.myrep` | Show your own reputation count. |
+| `.leaderboard` (or `.top`) | Show the top 10 community members by rep score. |
+
+- **Self-rep prevention** — you cannot give rep to yourself
+- **24-hour cooldown** — one rep given per day, period
+- **Persistent storage** — scores saved to `data/rep.json` (excluded from git)
+- **Thread-safe I/O** — all file access is serialised via `asyncio.Lock` and offloaded to a thread pool
 
 ### 🤖 AI Chat — `cogs/ai_chat.py`
 - **Access gate** — only the authorised owner (`pwnedByJT`) can interact with the bot; all other `@mentions` receive an access-denied reply

@@ -74,3 +74,8 @@ desktop.ini
 
 # ── SSH / asyncssh ────────────────────────────────────────────────────────────
 known_hosts
+
+# ── Runtime Data ──────────────────────────────────────────────────────────────
+# Keep the data/ directory tracked (for .gitkeep) but exclude generated JSON
+data/*.json
+!data/.gitkeep
