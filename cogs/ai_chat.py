@@ -25,6 +25,7 @@ from __future__ import annotations
 import logging
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 import config
@@ -105,10 +106,10 @@ class AIChatCog(commands.Cog, name="AI Chat"):
     # Commands
     # ------------------------------------------------------------------
 
-    @commands.command(name="ping")
-    async def ping(self, ctx: commands.Context) -> None:
+    @app_commands.command(name="ping", description="Check if the bot is alive.")
+    async def ping(self, interaction: discord.Interaction) -> None:
         """Simple latency check."""
-        await ctx.reply("pong")
+        await interaction.response.send_message("pong", ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:

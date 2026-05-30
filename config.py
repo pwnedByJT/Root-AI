@@ -15,10 +15,17 @@ load_dotenv()
 DISCORD_TOKEN: str = os.getenv("ROOT_AI_DISCORD_TOKEN") or os.getenv("DISCORD_TOKEN", "")
 BOT_PREFIX: str = os.getenv("BOT_PREFIX", ".")
 BOT_OWNER_ID: int = 389271525485707274  # pwnedByJT — used for @mentions in access-denied replies
+GUILD_ID: int = int(os.getenv("DISCORD_GUILD_ID", "0"))
 
 if not DISCORD_TOKEN:
     raise EnvironmentError(
         "No Discord token found. Set ROOT_AI_DISCORD_TOKEN or DISCORD_TOKEN in your .env file."
+    )
+
+if not GUILD_ID:
+    raise EnvironmentError(
+        "DISCORD_GUILD_ID is not set in your .env file. "
+        "Required for instant slash command sync. Set it to your Discord server ID."
     )
 
 # ── LLM / Ollama ─────────────────────────────────────────────────────────────
