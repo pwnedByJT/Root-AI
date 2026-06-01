@@ -39,9 +39,10 @@ EXTENSIONS = [
     "cogs.security",
     "cogs.moderation",
     "cogs.twitch",
+    "cogs.sec_monitor",   # HTB/THM accountability tracker + /streak command
     "cogs.rep",
     "cogs.shop",
-    "cogs.ai_chat",
+    "cogs.ai_chat",       # Always last — consumes all registered tools
 ]
 
 # ---------------------------------------------------------------------------

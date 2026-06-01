@@ -42,3 +42,9 @@ TWITCH_CLIENT_ID: str = os.getenv("ROOT_AI_TWITCH_CLIENT_ID", "")
 TWITCH_CLIENT_SECRET: str = os.getenv("ROOT_AI_TWITCH_CLIENT_SECRET", "")
 TWITCH_BROADCASTER_LOGIN: str = "pwnedByJT"
 TWITCH_NOTIFY_CHANNEL_ID: int = 1207980068807249930
+
+# ── HTB / THM Streak Monitor ──────────────────────────────────────────────────
+# HTB_API_TOKEN: generate at https://app.hackthebox.com/profile/settings → App Tokens
+HTB_API_TOKEN: str = os.getenv("HTB_API_TOKEN", "")
+# SEC_MONITOR_CHANNEL_ID: Discord channel where streak-danger alerts are posted
+SEC_MONITOR_CHANNEL_ID: int = int(os.getenv("SEC_MONITOR_CHANNEL_ID", "0"))
