@@ -2,22 +2,25 @@
 cogs/ai_chat.py
 on_message event handler and misc utility commands (ping).
 
-Access gate
------------
-Only the owner ("pwnedbyjt") may interact with the bot.  Any other user who
-@-mentions it receives an access-denied reply and nothing further happens.
-
 Mention handling
 ----------------
-When the authorised user @-mentions the bot, the message (minus the bot's own
-mention tag) is forwarded to ChatContextManager.chat().  The full
-``discord.Message`` object is passed through so tool callables in the cogs can
-access guild/member context.
+Any guild member may @-mention the bot to start a conversation.  The message
+(minus the bot's own mention tag) is forwarded to ChatContextManager.chat().
+The full ``discord.Message`` object is passed through so tool callables in the
+cogs can access guild/member context.
+
+Moderation / security gate
+--------------------------
+Moderation and security tools are gated at TWO layers:
+  1. The LLM system prompt instructs the model to refuse restricted actions
+     for anyone who is not pwnedByJT.
+  2. ChatContextManager._execute_tool() performs a hard code-level check
+     against config.BOT_OWNER_ID before dispatching any restricted tool.
 
 Command processing
 ------------------
 ``bot.process_commands(message)`` is always called at the end of on_message so
-prefix commands work independently of the mention gate.
+prefix commands work independently of the mention handler.
 """
 
 from __future__ import annotations
@@ -60,15 +63,8 @@ class AIChatCog(commands.Cog, name="AI Chat"):
         if message.author == self.bot.user:
             return
 
-        # EXCLUSIVE ACCESS LOCKDOWN: Only respond to the authorised owner
-        if message.author.name.lower() != "pwnedbyjt":
-            if self.bot.user and self.bot.user.mentioned_in(message):
-                await message.reply(
-                    f"Access Denied: Please get with <@{config.BOT_OWNER_ID}> if you want me to talk with you."
-                )
-            return
-
-        # Only respond when directly mentioned
+        # Only respond when directly mentioned — open to all community members.
+        # Moderation/security tool access is enforced inside ChatContextManager.
         if self.bot.user and self.bot.user.mentioned_in(message):
             # FIX: Only strip the bot's specific mention so target users stay in the text!
             user_text = (
