@@ -46,8 +46,9 @@ EXTENSIONS = [
     "cogs.autopwn",       # Phase 2 ReAct pentest agent — /autopwn slash command
     "cogs.c2_dashboard",  # Phase 3 Persistent C2 dashboard — /c2_dashboard
     "cogs.audit_repo",    # Phase 4 Repo security audit — /audit_repo + H1 export
-    "cogs.watchdog",      # Phase 5 Bug Bounty Watchdog — /watchdog + background loop
-    "cogs.ai_chat",       # Always last — consumes all registered tools
+    "cogs.watchdog",          # Phase 5 Bug Bounty Watchdog — /watchdog + background loop
+    "cogs.exploit_suggester", # Phase 8 Exploit Suggester — /exploits + search_exploits()
+    "cogs.ai_chat",           # Always last — consumes all registered tools
 ]
 
 # ---------------------------------------------------------------------------

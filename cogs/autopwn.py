@@ -43,6 +43,7 @@ from discord.ext import commands
 from openai import AsyncOpenAI
 
 from config import BOT_OWNER_ID, LOCAL_LLM_URL, LOCAL_MODEL_NAME
+from cogs.exploit_suggester import ExploitMatch, search_exploits
 from cogs.recon import CVEDetail, ReconResult, _validate_domain, enrich_cves
 from cogs.security import run_parrot_command, run_parrot_nmap_scan
 
@@ -279,6 +280,38 @@ async def _run_react_agent(
                 )
             else:
                 seed_lines.append("SHODAN CVEs (bare): " + ", ".join(sd.vulns[:10]))
+
+        # ── Exploit suggester — search ExploitDB for high/critical CVEs + products ──
+        exploit_queries: list[str] = []
+        if sd and sd.vulns:
+            # Prefer high/critical enriched CVEs; fall back to bare CVE IDs
+            if enriched:
+                exploit_queries.extend(
+                    d.cve_id for d in enriched if d.score is not None and d.score >= 7.0
+                )
+            if not exploit_queries:
+                exploit_queries.extend(sd.vulns[:3])
+        # Also add Shodan product names for broader exploit coverage
+        if sd and sd.services:
+            for svc in sd.services[:3]:
+                product = svc.get("product", "").strip()
+                if product and product not in exploit_queries:
+                    exploit_queries.append(product)
+
+        if exploit_queries:
+            await progress_cb("💣 Searching ExploitDB for known exploits...")
+            exploits: list[ExploitMatch] = await search_exploits(exploit_queries[:5])
+            if exploits:
+                exploit_lines: list[str] = []
+                for e in exploits[:10]:
+                    exploit_lines.append(
+                        f"  [{e.exploit_type}/{e.platform}] {e.title} (EDB-{e.edb_id})"
+                    )
+                seed_lines.append(
+                    f"KNOWN EXPLOITS ({len(exploits)} found via searchsploit):\n"
+                    + "\n".join(exploit_lines)
+                )
+
         first_msg = (
             "Phase 1 recon data is available — use it as your starting context:\n\n"
             + "\n\n".join(seed_lines)

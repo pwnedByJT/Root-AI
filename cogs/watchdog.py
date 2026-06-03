@@ -49,6 +49,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from config import BOT_OWNER_ID, WATCHDOG_CHANNEL_ID, WATCHDOG_DB_PATH, WATCHDOG_INTERVAL_HOURS
+from cogs.exploit_suggester import ExploitMatch, search_exploits
 from cogs.recon import (
     CVEDetail,
     ShodanResult,
@@ -522,6 +523,7 @@ def _build_alert_embed(
     domain: str,
     diff: ScanDiff,
     enriched_cves: list[CVEDetail] | None = None,
+    exploit_suggestions: list[ExploitMatch] | None = None,
 ) -> discord.Embed:
     """Alert embed posted to WATCHDOG_CHANNEL_ID when new assets are detected."""
     change_count = (
@@ -612,6 +614,18 @@ def _build_alert_embed(
             inline=False,
         )
 
+    if exploit_suggestions:
+        lines = []
+        for e in exploit_suggestions[:5]:
+            # Cap per line to ~80 chars to stay well inside 6000-char embed limit
+            title = e.title[:55] if len(e.title) > 55 else e.title
+            lines.append(f"`EDB-{e.edb_id}` [{e.exploit_type}/{e.platform}] {title}")
+        embed.add_field(
+            name=f"💣 Known Exploits ({len(exploit_suggestions)})",
+            value=_truncate_field(lines),
+            inline=False,
+        )
+
     embed.set_footer(text=_FOOTER)
     return embed
 
@@ -622,6 +636,7 @@ def _build_scan_embed(
     current_sub_count: int,
     baseline_sub_count: int,
     enriched_cves: list[CVEDetail] | None = None,
+    exploit_suggestions: list[ExploitMatch] | None = None,
 ) -> discord.Embed:
     """Ephemeral embed returned to the user for an on-demand /watchdog scan."""
     has_changes = diff.has_changes
@@ -719,6 +734,17 @@ def _build_scan_embed(
         embed.add_field(
             name=f"⚠️ New CVEs ({len(diff.new_cves)})",
             value=_truncate_field(cve_lines),
+            inline=False,
+        )
+
+    if exploit_suggestions:
+        lines = []
+        for e in exploit_suggestions[:5]:
+            title = e.title[:55] if len(e.title) > 55 else e.title
+            lines.append(f"`EDB-{e.edb_id}` [{e.exploit_type}/{e.platform}] {title}")
+        embed.add_field(
+            name=f"💣 Known Exploits ({len(exploit_suggestions)})",
+            value=_truncate_field(lines),
             inline=False,
         )
 
@@ -889,6 +915,20 @@ class WatchdogCog(commands.Cog, name="Watchdog"):
             )
             enriched_cves = await enrich_cves(diff.new_cves)
 
+        # ── Exploit suggestions for high/critical new CVEs (Phase 8) ─────────
+        exploit_suggestions: list[ExploitMatch] = []
+        if enriched_cves:
+            critical_ids = [
+                d.cve_id for d in enriched_cves if d.score is not None and d.score >= 7.0
+            ]
+            if critical_ids:
+                log.info(
+                    "Watchdog: searching exploits for %d high/critical CVE(s) for %s",
+                    len(critical_ids),
+                    domain,
+                )
+                exploit_suggestions = await search_exploits(critical_ids[:3])
+
         # ── Interactive: always reply with scan embed ─────────────────────────
         if interactive and interaction:
             embed = _build_scan_embed(
@@ -897,6 +937,7 @@ class WatchdogCog(commands.Cog, name="Watchdog"):
                 current_sub_count=len(current_subs),
                 baseline_sub_count=len(baseline_subs),
                 enriched_cves=enriched_cves or None,
+                exploit_suggestions=exploit_suggestions or None,
             )
             await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -908,7 +949,12 @@ class WatchdogCog(commands.Cog, name="Watchdog"):
                     "Watchdog: channel %d not found for %s", channel_id, domain
                 )
                 return
-            embed = _build_alert_embed(domain, diff, enriched_cves=enriched_cves or None)
+            embed = _build_alert_embed(
+                domain,
+                diff,
+                enriched_cves=enriched_cves or None,
+                exploit_suggestions=exploit_suggestions or None,
+            )
             await channel.send(embed=embed)  # type: ignore[union-attr]
             log.info(
                 "Watchdog: %s — alerted %d new_subs, %d new_ips, %d new_svcs, "
