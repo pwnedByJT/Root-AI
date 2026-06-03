@@ -43,7 +43,7 @@ from discord.ext import commands
 from openai import AsyncOpenAI
 
 from config import BOT_OWNER_ID, LOCAL_LLM_URL, LOCAL_MODEL_NAME
-from cogs.recon import ReconResult, _validate_domain
+from cogs.recon import CVEDetail, ReconResult, _validate_domain, enrich_cves
 from cogs.security import run_parrot_command, run_parrot_nmap_scan
 
 log = logging.getLogger("root_ai.autopwn")
@@ -260,7 +260,25 @@ async def _run_react_agent(
             )
             seed_lines.append(f"SHODAN SERVICES ({len(sd.services)} indexed):\n{svc_summary}")
         if sd and sd.vulns:
-            seed_lines.append("SHODAN CVEs: " + ", ".join(sd.vulns[:10]))
+            await progress_cb("🔍 Enriching CVE data via NVD (free tier — may take ~30s)...")
+            enriched: list[CVEDetail] = await enrich_cves(sd.vulns)
+            if enriched:
+                enriched_ids = {d.cve_id for d in enriched}
+                cve_lines: list[str] = []
+                for detail in enriched:
+                    score_str = f"{detail.score:.1f}" if detail.score is not None else "N/A"
+                    cve_lines.append(
+                        f"  {detail.cve_id} [{detail.severity} {score_str}]: {detail.description}"
+                    )
+                unenriched = [c for c in sd.vulns[:10] if c not in enriched_ids]
+                block = "\n".join(cve_lines)
+                if unenriched:
+                    block += "\n  Also reported (no NVD data): " + ", ".join(unenriched)
+                seed_lines.append(
+                    f"SHODAN CVEs — ENRICHED ({len(enriched)}/{min(len(sd.vulns), 5)} looked up):\n{block}"
+                )
+            else:
+                seed_lines.append("SHODAN CVEs (bare): " + ", ".join(sd.vulns[:10]))
         first_msg = (
             "Phase 1 recon data is available — use it as your starting context:\n\n"
             + "\n\n".join(seed_lines)
