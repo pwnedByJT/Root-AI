@@ -1,10 +1,13 @@
 """
 cogs/twitch.py
-Twitch live-status tool + background monitor + Hype Train milestone alerts.
+Twitch live-status monitor and Hype Train milestone alerts.
 
 Responsibilities
 ----------------
-* ``check_twitch_status`` — on-demand Helix API query (registered as an LLM tool).
+* ``check_twitch_status`` — standalone async helper; used internally by the
+  background task and by AIChatCog (via ``TwitchCog.is_live``) for LLM context
+  injection.  It is intentionally NOT registered as an LLM tool so the model
+  cannot intercept general chat messages with a Twitch status tool call.
 * ``TwitchCog.twitch_monitor`` — ``@tasks.loop`` that polls every 3 minutes:
     - Posts a @everyone alert to the configured channel when the stream goes live.
     - Fires a viewer-milestone embed (Hype Train) each time the live viewer count
@@ -40,7 +43,6 @@ from config import (
     TWITCH_CLIENT_SECRET,
     TWITCH_NOTIFY_CHANNEL_ID,
 )
-from services.llm_manager import ChatContextManager
 
 log = logging.getLogger("root_ai.twitch")
 
@@ -179,28 +181,38 @@ TWITCH_STATUS_TOOL_SPEC: dict = {
 
 class TwitchCog(commands.Cog, name="Twitch"):
     """
-    Registers the Twitch status tool and runs the background live monitor
-    with Hype Train viewer-milestone alerts.
+    Runs the background Twitch live monitor with Hype Train viewer-milestone alerts.
+
+    Stream status is exposed via the ``is_live`` property so other cogs (e.g.
+    AIChatCog) can inject the current state into the LLM context without making
+    an extra API call.  The ``check_twitch_status`` tool is intentionally NOT
+    registered with ChatContextManager — Twitch status is surfaced as a system-
+    prompt context block and a response footer instead, which prevents the LLM
+    from intercepting unrelated questions with a tool call.
 
     Instance state
     --------------
-    _was_live       — last known live state; resets on Cog reload (acceptable).
-    _milestones_fired — milestones that have already been announced this stream;
-                       cleared on live → offline transition.
+    _was_live       — last known live state (None until first poll completes);
+                      resets on Cog reload (acceptable for a home-lab bot).
+    _milestones_fired — milestones announced this stream; cleared on transition.
     """
 
-    def __init__(self, bot: commands.Bot, chat_manager: ChatContextManager) -> None:
+    def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
-        self._chat = chat_manager
-        self._was_live: bool = False
+        self._was_live: bool | None = None  # None = first poll not yet run
         self._milestones_fired: set[int] = set()
-        self._register_tools()
 
-    def _register_tools(self) -> None:
-        async def _twitch_handler(args: dict, message: discord.Message) -> str:  # noqa: ARG001
-            return await check_twitch_status()
+    # ------------------------------------------------------------------
+    # Public API — consumed by AIChatCog for context injection
+    # ------------------------------------------------------------------
 
-        self._chat.register_tool("check_twitch_status", _twitch_handler, TWITCH_STATUS_TOOL_SPEC)
+    @property
+    def is_live(self) -> bool | None:
+        """
+        Last known live state.  Returns ``None`` until the first background poll
+        completes so callers can distinguish "offline" from "not yet known".
+        """
+        return self._was_live
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -359,5 +371,4 @@ class TwitchCog(commands.Cog, name="Twitch"):
 
 
 async def setup(bot: commands.Bot) -> None:
-    chat_manager: ChatContextManager = bot.chat_manager  # type: ignore[attr-defined]
-    await bot.add_cog(TwitchCog(bot, chat_manager))
+    await bot.add_cog(TwitchCog(bot))
