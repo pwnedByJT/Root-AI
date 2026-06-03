@@ -277,30 +277,21 @@ class ReconView(discord.ui.View):
 
         # Disable the button to prevent double-fire
         button.disabled = True
-        button.label = "⏳ Queued for Auto-Pwn..."
+        button.label = "⏳ Running Auto-Pwn..."
         button.emoji = discord.PartialEmoji(name="⏳")
         await interaction.response.edit_message(view=self)
 
-        # ── Phase 2 stub ──────────────────────────────────────────────────
-        # When Phase 2 (AutoPwnCog) is implemented, replace this block with:
-        #   autopwn_cog = interaction.client.get_cog("AutoPwn")
-        #   await autopwn_cog.start_autopwn(interaction, self.result)
-        await interaction.followup.send(
-            embed=discord.Embed(
-                title="🚧 Phase 2 — Auto-Pwn (Coming Soon)",
-                description=(
-                    f"Results for **`{self.result.domain}`** have been staged.\n\n"
-                    f"**{len(self.result.subdomains)}** subdomains and "
-                    f"**{len(self.result.open_ports)}** open ports are cached and "
-                    "will be fed directly into the autonomous ReAct agent pipeline "
-                    "once Phase 2 is deployed.\n\n"
-                    "The agent will run:\n"
-                    "`Initial Nmap` → `Gobuster/FFUF` → `Vuln ID` → `Executive Summary`"
-                ),
-                color=discord.Color.orange(),
-            ),
-            ephemeral=True,
-        )
+        # ── Phase 2 handoff ───────────────────────────────────────────────
+        # edit_message() has consumed the interaction response; all further
+        # Discord messages in start_autopwn() use interaction.followup.
+        autopwn_cog = interaction.client.get_cog("AutoPwn")
+        if autopwn_cog is None:
+            await interaction.followup.send(
+                "⚠️ AutoPwn cog is not loaded — check bot startup logs.",
+                ephemeral=True,
+            )
+            return
+        await autopwn_cog.start_autopwn(interaction, self.result)
 
     async def on_timeout(self) -> None:
         """Disable all buttons when the view expires to prevent stale interactions."""

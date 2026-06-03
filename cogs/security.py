@@ -79,6 +79,39 @@ def _nmap_predicate(user_text: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
+async def run_parrot_command(command: str, timeout: int = 120) -> str:
+    """
+    SSH into the Parrot OS WSL instance and run *command* verbatim.
+
+    The caller is responsible for sanitising the command string before passing
+    it here.  Returns raw stdout (falling back to stderr on empty stdout).
+    """
+    log.info("SSH → Parrot OS | command: %s", command[:160])
+    try:
+        async with asyncssh.connect(
+            host=PARROT_HOST,
+            username=PARROT_USER,
+            password=PARROT_PASS,
+            known_hosts=None,          # home-lab: skip strict host checking
+            connect_timeout=15,
+        ) as conn:
+            result = await conn.run(command, check=False, timeout=timeout)
+            output = result.stdout or ""
+            stderr = result.stderr or ""
+            if result.returncode != 0 and not output:
+                return f"Command exited with code {result.returncode}.\nSTDERR:\n{stderr}"
+            return output if output else stderr
+    except asyncssh.DisconnectError as exc:
+        log.error("SSH disconnect: %s", exc)
+        return f"SSH disconnect error: {exc}"
+    except asyncssh.PermissionDenied:
+        log.error("SSH permission denied for user '%s'", PARROT_USER)
+        return "SSH error: permission denied. Check PARROT_USER / PARROT_PASS."
+    except Exception as exc:  # pylint: disable=broad-except
+        log.exception("Unexpected SSH error")
+        return f"SSH error: {exc}"
+
+
 async def run_parrot_nmap_scan(target: str, arguments: str = "-F") -> str:
     """
     SSH into the Parrot OS WSL instance and run an nmap scan.
@@ -91,31 +124,7 @@ async def run_parrot_nmap_scan(target: str, arguments: str = "-F") -> str:
         return "Error: invalid or empty target after sanitization."
 
     command = f"nmap {clean_args} {clean_target}"
-    log.info("SSH → Parrot OS | command: %s", command)
-
-    try:
-        async with asyncssh.connect(
-            host=PARROT_HOST,
-            username=PARROT_USER,
-            password=PARROT_PASS,
-            known_hosts=None,          # home-lab: skip strict host checking
-            connect_timeout=15,
-        ) as conn:
-            result = await conn.run(command, check=False, timeout=120)
-            output = result.stdout or ""
-            stderr = result.stderr or ""
-            if result.returncode != 0 and not output:
-                return f"nmap exited with code {result.returncode}.\nSTDERR:\n{stderr}"
-            return output if output else stderr
-    except asyncssh.DisconnectError as exc:
-        log.error("SSH disconnect: %s", exc)
-        return f"SSH disconnect error: {exc}"
-    except asyncssh.PermissionDenied:
-        log.error("SSH permission denied for user '%s'", PARROT_USER)
-        return "SSH error: permission denied. Check PARROT_USER / PARROT_PASS."
-    except Exception as exc:  # pylint: disable=broad-except
-        log.exception("Unexpected SSH error")
-        return f"SSH error: {exc}"
+    return await run_parrot_command(command)
 
 
 # ---------------------------------------------------------------------------
