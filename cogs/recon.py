@@ -105,6 +105,22 @@ class ShodanResult:
 
 
 @dataclass
+class CVEDetail:
+    """
+    Enriched CVE data from the NVD 2.0 API.
+
+    score    — CVSS base score (v3.1 preferred, v3.0 fallback, v2 last resort)
+    severity — CRITICAL / HIGH / MEDIUM / LOW / UNKNOWN
+    description — first 200 chars of the English description
+    """
+
+    cve_id: str
+    score: Optional[float]
+    severity: str
+    description: str
+
+
+@dataclass
 class ReconResult:
     """
     Immutable snapshot of a completed recon run.
@@ -338,6 +354,85 @@ async def _shodan_host_info(domain: str) -> Optional[ShodanResult]:
         domain, len(ips), len(result.services), len(result.vulns),
     )
     return result
+
+
+async def enrich_cves(cve_ids: list[str]) -> list[CVEDetail]:
+    """
+    Fetch CVSS scores and descriptions for *cve_ids* from the NVD 2.0 API.
+
+    Caps at 5 CVEs and sleeps 6.5 s between requests to stay within the
+    free-tier limit of 5 requests per rolling 30-second window.
+
+    Returns a (possibly shorter) list of CVEDetail on success; gracefully
+    skips any CVE that is unknown to NVD (HTTP 404) or times out.
+    Public API — importable by ``cogs.autopwn`` and ``cogs.watchdog``.
+    """
+    if not cve_ids:
+        return []
+
+    results: list[CVEDetail] = []
+    async with aiohttp.ClientSession() as session:
+        for i, cve_id in enumerate(cve_ids[:5]):  # hard cap at 5
+            if i > 0:
+                await asyncio.sleep(6.5)  # NVD free tier: 5 req / 30 s
+            try:
+                async with session.get(
+                    "https://services.nvd.nist.gov/rest/json/cves/2.0",
+                    params={"cveId": cve_id},
+                    headers={"Accept": "application/json"},
+                    timeout=aiohttp.ClientTimeout(total=15),
+                ) as resp:
+                    if resp.status == 404:
+                        log.debug("NVD: %s not yet indexed (404)", cve_id)
+                        continue
+                    if resp.status != 200:
+                        log.warning("NVD: unexpected HTTP %d for %s", resp.status, cve_id)
+                        continue
+                    data = await resp.json(content_type=None)
+
+                vulns = data.get("vulnerabilities", [])
+                if not vulns:
+                    continue
+
+                cve_obj = vulns[0]["cve"]
+                score: Optional[float] = None
+                severity: str = "UNKNOWN"
+                metrics = cve_obj.get("metrics", {})
+
+                # CVSS priority: v3.1 → v3.0 → v2
+                for mk in ("cvssMetricV31", "cvssMetricV30"):
+                    if mk in metrics and metrics[mk]:
+                        cd = metrics[mk][0]["cvssData"]
+                        score = cd.get("baseScore")
+                        severity = cd.get("baseSeverity", "UNKNOWN")
+                        break
+
+                if score is None and "cvssMetricV2" in metrics and metrics["cvssMetricV2"]:
+                    cd = metrics["cvssMetricV2"][0]["cvssData"]
+                    score = cd.get("baseScore")
+                    severity = metrics["cvssMetricV2"][0].get("baseSeverity", "UNKNOWN")
+
+                descs = cve_obj.get("descriptions", [])
+                desc = next((d["value"] for d in descs if d["lang"] == "en"), "")
+                results.append(
+                    CVEDetail(
+                        cve_id=cve_id,
+                        score=score,
+                        severity=severity,
+                        description=desc[:200],
+                    )
+                )
+                log.debug("NVD: enriched %s — score=%s severity=%s", cve_id, score, severity)
+
+            except asyncio.TimeoutError:
+                log.warning("NVD: timeout for %s", cve_id)
+                continue
+            except Exception as exc:  # pylint: disable=broad-except
+                log.warning("NVD: error for %s: %s", cve_id, exc)
+                continue
+
+    log.info("NVD: enriched %d/%d CVE(s)", len(results), min(len(cve_ids), 5))
+    return results
 
 
 def _parse_open_ports(nmap_output: str) -> list[str]:
