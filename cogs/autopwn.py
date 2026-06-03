@@ -581,24 +581,15 @@ class AutoPwnView(discord.ui.View):
         button.label = "⏳ Generating Report..."
         await interaction.response.edit_message(view=self)
 
-        # ── Phase 4 stub ──────────────────────────────────────────────────
-        # When Phase 4 (AuditRepoCog / ReportCog) is implemented, replace with:
-        #   report_cog = interaction.client.get_cog("Audit")
-        #   await report_cog.export_report(interaction, self.result)
-        await interaction.followup.send(
-            embed=discord.Embed(
-                title="🚧 Phase 4 — Report Export (Coming Soon)",
-                description=(
-                    f"Findings for **`{self.result.domain}`** are cached.\n\n"
-                    f"**{len(self.result.cycles)}** scan cycles and "
-                    f"**{len(self.result.tools_used)}** tools will be compiled into a "
-                    "full **HackerOne-format** vulnerability report with CVSS scores, "
-                    "PoC steps, and remediation guidance once Phase 4 is deployed."
-                ),
-                color=discord.Color.orange(),
-            ),
-            ephemeral=True,
-        )
+        # ── Phase 4 handoff ───────────────────────────────────────────────
+        audit_cog = interaction.client.get_cog("Audit")
+        if audit_cog is None:
+            await interaction.followup.send(
+                "⚠️ Audit cog is not loaded — check bot startup logs.",
+                ephemeral=True,
+            )
+            return
+        await audit_cog.export_report(interaction, self.result)
 
     async def on_timeout(self) -> None:
         for item in self.children:
