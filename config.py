@@ -36,6 +36,7 @@ LOCAL_MODEL_NAME: str = os.getenv("LOCAL_MODEL_NAME", "llama3.1")
 PARROT_HOST: str = os.getenv("PARROT_HOST", "127.0.0.1")
 PARROT_USER: str = os.getenv("PARROT_USER", "")
 PARROT_PASS: str = os.getenv("PARROT_PASS", "")
+C2_SUBNET_CIDR: str = os.getenv("C2_SUBNET_CIDR", "192.168.1.0/24")
 
 # ── Twitch ────────────────────────────────────────────────────────────────────
 TWITCH_CLIENT_ID: str = os.getenv("ROOT_AI_TWITCH_CLIENT_ID", "")

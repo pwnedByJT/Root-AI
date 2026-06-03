@@ -44,6 +44,7 @@ EXTENSIONS = [
     "cogs.shop",
     "cogs.recon",         # Phase 1 OSINT — /recon slash command
     "cogs.autopwn",       # Phase 2 ReAct pentest agent — /autopwn slash command
+    "cogs.c2_dashboard",  # Phase 3 Persistent C2 dashboard — /c2_dashboard
     "cogs.ai_chat",       # Always last — consumes all registered tools
 ]
 
