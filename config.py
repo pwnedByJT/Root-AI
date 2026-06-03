@@ -43,6 +43,9 @@ TWITCH_CLIENT_SECRET: str = os.getenv("ROOT_AI_TWITCH_CLIENT_SECRET", "")
 TWITCH_BROADCASTER_LOGIN: str = "pwnedByJT"
 TWITCH_NOTIFY_CHANNEL_ID: int = 1207980068807249930
 
+# ── Shodan (Phase 1+ OSINT) ───────────────────────────────────────────────────
+SHODAN_API_KEY: str = os.getenv("SHODAN_API_KEY", "")
+
 # ── HTB / THM Streak Monitor ──────────────────────────────────────────────────
 # HTB_API_TOKEN: generate at https://app.hackthebox.com/profile/settings → App Tokens
 HTB_API_TOKEN: str = os.getenv("HTB_API_TOKEN", "")

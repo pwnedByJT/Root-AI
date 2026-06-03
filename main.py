@@ -42,6 +42,7 @@ EXTENSIONS = [
     "cogs.sec_monitor",   # HTB/THM accountability tracker + /streak command
     "cogs.rep",
     "cogs.shop",
+    "cogs.recon",         # Phase 1 OSINT — /recon slash command
     "cogs.ai_chat",       # Always last — consumes all registered tools
 ]
 
