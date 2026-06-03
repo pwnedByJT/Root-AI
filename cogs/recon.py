@@ -38,7 +38,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import BOT_OWNER_ID
-from cogs.security import run_parrot_nmap_scan
+from cogs.security import run_parrot_command, run_parrot_nmap_scan
 
 log = logging.getLogger("root_ai.recon")
 
@@ -151,6 +151,74 @@ async def _crtsh_subdomains(domain: str) -> list[str]:
     except Exception as exc:  # pylint: disable=broad-except
         log.error("crt.sh error for %s: %s", domain, exc)
         return []
+
+
+async def _subfinder_subdomains(domain: str) -> list[str]:
+    """
+    Run subfinder on Parrot OS via SSH and return discovered subdomains.
+
+    Requires subfinder to be installed on the Parrot host (free / open-source).
+    Returns [] gracefully if the binary is missing or the SSH call fails.
+    """
+    try:
+        cmd = f"subfinder -d '{domain}' -silent -all 2>/dev/null | head -500"
+        output = await run_parrot_command(cmd, timeout=60)
+        if "command not found" in output or not output.strip():
+            return []
+        results = [
+            line.strip().lower()
+            for line in output.splitlines()
+            if line.strip() and line.strip().endswith(f".{domain.lower()}")
+        ]
+        log.info("subfinder: %d subdomains for %s", len(results), domain)
+        return sorted(set(results))
+    except Exception as exc:  # pylint: disable=broad-except
+        log.warning("subfinder failed for %s: %s", domain, exc)
+        return []
+
+
+async def _assetfinder_subdomains(domain: str) -> list[str]:
+    """
+    Run assetfinder on Parrot OS via SSH and return discovered subdomains.
+
+    Requires assetfinder to be installed on the Parrot host (free / open-source).
+    Returns [] gracefully if the binary is missing or the SSH call fails.
+    """
+    try:
+        cmd = f"assetfinder --subs-only '{domain}' 2>/dev/null | head -200"
+        output = await run_parrot_command(cmd, timeout=45)
+        if "command not found" in output or not output.strip():
+            return []
+        results = [
+            line.strip().lower()
+            for line in output.splitlines()
+            if line.strip() and line.strip().endswith(f".{domain.lower()}")
+        ]
+        log.info("assetfinder: %d subdomains for %s", len(results), domain)
+        return sorted(set(results))
+    except Exception as exc:  # pylint: disable=broad-except
+        log.warning("assetfinder failed for %s: %s", domain, exc)
+        return []
+
+
+async def gather_subdomains(domain: str) -> list[str]:
+    """
+    Combine crt.sh + subfinder + assetfinder results into a single deduplicated list.
+
+    Public API — importable by ``cogs.watchdog`` to avoid code duplication.
+    All three sources run concurrently; any that fail are silently skipped.
+    """
+    results = await asyncio.gather(
+        _crtsh_subdomains(domain),
+        _subfinder_subdomains(domain),
+        _assetfinder_subdomains(domain),
+        return_exceptions=True,
+    )
+    merged: set[str] = set()
+    for r in results:
+        if isinstance(r, list):
+            merged.update(r)
+    return sorted(merged)
 
 
 def _parse_open_ports(nmap_output: str) -> list[str]:
@@ -356,9 +424,10 @@ class ReconCog(commands.Cog, name="Recon"):
         log.info("RECON: Starting recon on '%s' for user %s", clean_domain, interaction.user)
 
         # ── Run OSINT tools concurrently ─────────────────────────────────────
-        # crt.sh (passive, ~2–5 s) and nmap (active, ~15–60 s) run in parallel.
+        # gather_subdomains (crt.sh + subfinder + assetfinder, ~5–60 s) and
+        # nmap (active, ~15–60 s) run in parallel.
         nmap_args = "-T4 --top-ports 500 --open"
-        sub_task = _crtsh_subdomains(clean_domain)
+        sub_task = gather_subdomains(clean_domain)
         nmap_task = run_parrot_nmap_scan(clean_domain, nmap_args)
 
         results = await asyncio.gather(sub_task, nmap_task, return_exceptions=True)
@@ -370,8 +439,8 @@ class ReconCog(commands.Cog, name="Recon"):
         nmap_output: str = ""
 
         if isinstance(subdomains_raw, Exception):
-            log.error("RECON: crt.sh failed: %s", subdomains_raw)
-            error_notes.append(f"crt.sh lookup failed: {subdomains_raw}")
+            log.error("RECON: subdomain gather failed: %s", subdomains_raw)
+            error_notes.append(f"Subdomain enumeration failed: {subdomains_raw}")
         else:
             subdomains = subdomains_raw  # type: ignore[assignment]
 
