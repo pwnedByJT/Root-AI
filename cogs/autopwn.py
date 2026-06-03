@@ -252,6 +252,15 @@ async def _run_react_agent(
                 f"KNOWN OPEN PORTS ({len(initial_recon.open_ports)} from nmap):\n"
                 + "\n".join(initial_recon.open_ports[:20])
             )
+        sd = initial_recon.shodan_data
+        if sd and sd.services:
+            svc_summary = "\n".join(
+                f"  {s['port']}/{s['proto']} {s.get('product','')} {s.get('version','')}".strip()
+                for s in sd.services[:20]
+            )
+            seed_lines.append(f"SHODAN SERVICES ({len(sd.services)} indexed):\n{svc_summary}")
+        if sd and sd.vulns:
+            seed_lines.append("SHODAN CVEs: " + ", ".join(sd.vulns[:10]))
         first_msg = (
             "Phase 1 recon data is available — use it as your starting context:\n\n"
             + "\n\n".join(seed_lines)

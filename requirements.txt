@@ -15,3 +15,6 @@ asyncssh>=2.14.0
 
 # Environment variable loading from .env file
 python-dotenv>=1.0.0
+
+# Shodan host intelligence — free-tier api.host(ip) lookups
+shodan>=1.31.0

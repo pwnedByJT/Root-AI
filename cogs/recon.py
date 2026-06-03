@@ -6,22 +6,29 @@ Slash command: /recon <target_domain>
 
 Pipeline (runs concurrently):
   1. crt.sh Certificate Transparency log query — passive subdomain enumeration
-  2. Nmap scan via the existing SSH→Parrot OS tunnel (reuses run_parrot_nmap_scan)
+  2. subfinder (Parrot OS SSH) — active subdomain enumeration
+  3. assetfinder (Parrot OS SSH) — active subdomain enumeration
+  4. Shodan host intel — api.host(ip) per resolved IP (free tier, sequential)
+  5. Nmap scan via the existing SSH→Parrot OS tunnel (reuses run_parrot_nmap_scan)
 
 Output:
-  - Rich Discord Embed: subdomains, open ports, scan metadata
+  - Rich Discord Embed: subdomains, Shodan services/CVEs, open ports, scan metadata
   - ReconView: "Send to Auto-Pwn" button (Phase 2 stub — result cached in View)
 
 Security boundaries:
   - /recon is restricted to the bot owner (BOT_OWNER_ID) at the code level.
   - FQDN regex validation runs before any network call to prevent injection/SSRF.
+  - Resolved IPs are re-validated against _PRIVATE_RANGE_RE before Shodan lookup.
   - crt.sh is read-only passive recon — no active probing on that path.
   - Nmap is rate-limited to T4 timing; target is validated before SSH dispatch.
+  - Shodan api.host() is called sequentially (1 req/s free-tier limit).
+  - Shodan is skipped entirely when SHODAN_API_KEY is not set.
 
 Phase 2 integration point:
   - ReconResult dataclass is the contract between Phase 1 and Phase 2.
   - When Phase 2 (auto-pwn) is implemented, ReconView.autopwn_button should
     call the AutoPwnCog pipeline and pass result.domain + result.open_ports.
+  - ShodanResult is included in ReconResult and seeded into the AutoPwn LLM context.
 """
 
 from __future__ import annotations
@@ -29,15 +36,17 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import socket
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Optional
 
 import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-from config import BOT_OWNER_ID
+from config import BOT_OWNER_ID, SHODAN_API_KEY
 from cogs.security import run_parrot_command, run_parrot_nmap_scan
 
 log = logging.getLogger("root_ai.recon")
@@ -80,6 +89,22 @@ def _validate_domain(domain: str) -> tuple[bool, str]:
 
 
 @dataclass
+class ShodanResult:
+    """
+    Shodan host intelligence snapshot for all IPs resolved from a domain.
+
+    services entries have shape:
+        {"port": int, "proto": str, "product": str, "version": str,
+         "cpe": str, "banner": str}   (banner truncated to 200 chars)
+    """
+
+    ips: list[str] = field(default_factory=list)
+    hostnames: list[str] = field(default_factory=list)
+    services: list[dict] = field(default_factory=list)
+    vulns: list[str] = field(default_factory=list)  # CVE IDs
+
+
+@dataclass
 class ReconResult:
     """
     Immutable snapshot of a completed recon run.
@@ -90,6 +115,7 @@ class ReconResult:
     subdomains: list[str] = field(default_factory=list)
     open_ports: list[str] = field(default_factory=list)
     raw_nmap: str = ""
+    shodan_data: Optional[ShodanResult] = None
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     error_notes: list[str] = field(default_factory=list)
 
@@ -221,6 +247,98 @@ async def gather_subdomains(domain: str) -> list[str]:
     return sorted(merged)
 
 
+def _resolve_ips(domain: str) -> list[str]:
+    """Resolve *domain* to a deduplicated list of public IPv4 addresses (sync)."""
+    try:
+        infos = socket.getaddrinfo(domain, None, socket.AF_INET)
+        seen: set[str] = set()
+        results: list[str] = []
+        for info in infos:
+            ip = info[4][0]
+            if ip not in seen and not _PRIVATE_RANGE_RE.match(ip):
+                seen.add(ip)
+                results.append(ip)
+        return results[:3]  # cap at 3 — conserve free-tier credits
+    except Exception:  # pylint: disable=broad-except
+        return []
+
+
+async def _shodan_host_info(domain: str) -> Optional[ShodanResult]:
+    """
+    Query Shodan for host intel on all public IPs resolved from *domain*.
+
+    Uses only ``api.host(ip)`` — free tier, no query credits consumed.
+    IPs are queried **sequentially** to respect the 1 req/s free-tier rate limit.
+
+    Returns None if SHODAN_API_KEY is not set.
+    Returns a (possibly empty) ShodanResult on any other outcome so the caller
+    can always distinguish "not configured" from "no results".
+    """
+    if not SHODAN_API_KEY:
+        return None
+
+    try:
+        import shodan  # local import — only required when key is configured
+    except ImportError:
+        log.warning("Shodan library not installed — run: pip install shodan")
+        return None
+
+    api = shodan.Shodan(SHODAN_API_KEY)
+    ips = await asyncio.to_thread(_resolve_ips, domain)
+
+    if not ips:
+        log.info("Shodan: no public IPs resolved for %s", domain)
+        return ShodanResult()
+
+    result = ShodanResult(ips=ips)
+
+    for ip in ips:
+        try:
+            host = await asyncio.to_thread(api.host, ip)
+        except shodan.APIError as exc:
+            msg = str(exc).lower()
+            if "no information available" in msg:
+                log.debug("Shodan: no data for %s (%s)", ip, domain)
+                continue  # normal — host not indexed
+            if "invalid api key" in msg or "access denied" in msg:
+                log.error("Shodan: API key rejected — %s", exc)
+                result  # return whatever we have so far
+                break
+            log.warning("Shodan: API error for %s: %s", ip, exc)
+            continue
+        except Exception as exc:  # pylint: disable=broad-except
+            log.warning("Shodan: unexpected error for %s: %s", ip, exc)
+            continue
+
+        # Collect unique hostnames
+        for hn in host.get("hostnames", []):
+            if hn not in result.hostnames:
+                result.hostnames.append(hn)
+
+        # Collect CVEs
+        for cve in host.get("vulns", {}).keys():
+            if cve not in result.vulns:
+                result.vulns.append(cve)
+
+        # Collect services
+        for item in host.get("data", []):
+            service: dict = {
+                "port": item.get("port", 0),
+                "proto": item.get("transport", "tcp"),
+                "product": item.get("product", ""),
+                "version": item.get("version", ""),
+                "cpe": (item.get("cpe", [""])[0] if item.get("cpe") else ""),
+                "banner": (item.get("data", "") or "")[:200].strip(),
+            }
+            result.services.append(service)
+
+    log.info(
+        "Shodan: %s — %d IP(s), %d service(s), %d CVE(s)",
+        domain, len(ips), len(result.services), len(result.vulns),
+    )
+    return result
+
+
 def _parse_open_ports(nmap_output: str) -> list[str]:
     """
     Extract open port lines from nmap stdout.
@@ -249,8 +367,8 @@ def _build_recon_embed(result: ReconResult) -> discord.Embed:
     embed = discord.Embed(
         title=f"🔍 Recon Report — `{result.domain}`",
         description=(
-            "Passive subdomain enumeration via **crt.sh CT logs** + "
-            "active port scan via **Parrot OS / nmap**.\n\n"
+            "Passive enumeration via **crt.sh** + **subfinder** + **assetfinder** + **Shodan** "
+            "& active port scan via **Parrot OS / nmap**.\n\n"
             "⚠️ *Use only on targets you own or have explicit written permission to test.*"
         ),
         color=discord.Color.from_rgb(220, 50, 50),
@@ -296,6 +414,46 @@ def _build_recon_embed(result: ReconResult) -> discord.Embed:
             ),
             inline=False,
         )
+
+    # ── Shodan Intel field ───────────────────────────────────────────────────
+    sd = result.shodan_data
+    if sd is not None:
+        if sd.services or sd.vulns or sd.hostnames:
+            lines: list[str] = []
+            if sd.ips:
+                lines.append(f"**IPs:** {', '.join(f'`{ip}`' for ip in sd.ips)}")
+            if sd.hostnames:
+                hn_display = sd.hostnames[:5]
+                lines.append("**Hostnames:** " + ", ".join(f"`{h}`" for h in hn_display))
+            if sd.services:
+                svc_lines = []
+                for svc in sd.services[:10]:
+                    parts = f"`{svc['port']}/{svc['proto']}`"
+                    if svc["product"]:
+                        parts += f" {svc['product']}"
+                        if svc["version"]:
+                            parts += f" {svc['version']}"
+                    svc_lines.append(parts)
+                if len(sd.services) > 10:
+                    svc_lines.append(f"`... +{len(sd.services) - 10} more`")
+                lines.append("**Services:**\n" + "\n".join(svc_lines))
+            if sd.vulns:
+                cve_text = " ".join(f"`{v}`" for v in sd.vulns[:10])
+                if len(sd.vulns) > 10:
+                    cve_text += f" `+{len(sd.vulns) - 10} more`"
+                lines.append(f"**⚠️ CVEs ({len(sd.vulns)}):** {cve_text}")
+            embed.add_field(
+                name="🔭 Shodan Intel",
+                value="\n".join(lines)[:1020],
+                inline=False,
+            )
+        else:
+            embed.add_field(
+                name="🔭 Shodan Intel",
+                value="Host not indexed or no open services recorded.",
+                inline=False,
+            )
+    # sd is None → SHODAN_API_KEY not set; omit the field entirely
 
     # ── Error notes (if any partial failures occurred) ───────────────────────
     if result.error_notes:
@@ -424,19 +582,25 @@ class ReconCog(commands.Cog, name="Recon"):
         log.info("RECON: Starting recon on '%s' for user %s", clean_domain, interaction.user)
 
         # ── Run OSINT tools concurrently ─────────────────────────────────────
-        # gather_subdomains (crt.sh + subfinder + assetfinder, ~5–60 s) and
-        # nmap (active, ~15–60 s) run in parallel.
+        # gather_subdomains (crt.sh + subfinder + assetfinder, ~5–60 s),
+        # _shodan_host_info (sequential per IP, ~5–15 s), and
+        # nmap (active, ~15–60 s) all run concurrently at the top level.
+        # Note: Shodan IPs are queried sequentially *within* _shodan_host_info
+        # to honour the 1 req/s free-tier rate limit.
         nmap_args = "-T4 --top-ports 500 --open"
-        sub_task = gather_subdomains(clean_domain)
-        nmap_task = run_parrot_nmap_scan(clean_domain, nmap_args)
+        results = await asyncio.gather(
+            gather_subdomains(clean_domain),
+            run_parrot_nmap_scan(clean_domain, nmap_args),
+            _shodan_host_info(clean_domain),
+            return_exceptions=True,
+        )
+        subdomains_raw, nmap_output_raw, shodan_raw = results
 
-        results = await asyncio.gather(sub_task, nmap_task, return_exceptions=True)
-        subdomains_raw, nmap_output_raw = results
-
-        # Gracefully degrade if either task failed
+        # Gracefully degrade if any task failed
         error_notes: list[str] = []
         subdomains: list[str] = []
         nmap_output: str = ""
+        shodan_data: Optional[ShodanResult] = None
 
         if isinstance(subdomains_raw, Exception):
             log.error("RECON: subdomain gather failed: %s", subdomains_raw)
@@ -449,6 +613,12 @@ class ReconCog(commands.Cog, name="Recon"):
             error_notes.append(f"Nmap scan failed: {nmap_output_raw}")
         else:
             nmap_output = nmap_output_raw  # type: ignore[assignment]
+
+        if isinstance(shodan_raw, Exception):
+            log.error("RECON: Shodan failed: %s", shodan_raw)
+            error_notes.append(f"Shodan lookup failed: {shodan_raw}")
+        else:
+            shodan_data = shodan_raw  # type: ignore[assignment]
 
         open_ports = _parse_open_ports(nmap_output)
         log.info(
@@ -464,6 +634,7 @@ class ReconCog(commands.Cog, name="Recon"):
             subdomains=subdomains,
             open_ports=open_ports,
             raw_nmap=nmap_output,
+            shodan_data=shodan_data,
             error_notes=error_notes,
         )
 
