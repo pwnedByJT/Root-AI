@@ -44,11 +44,20 @@ TWITCH_CLIENT_SECRET: str = os.getenv("ROOT_AI_TWITCH_CLIENT_SECRET", "")
 TWITCH_BROADCASTER_LOGIN: str = "pwnedByJT"
 TWITCH_NOTIFY_CHANNEL_ID: int = 1207980068807249930
 
-# ── Shodan (Phase 1+ OSINT) ───────────────────────────────────────────────────
-SHODAN_API_KEY: str = os.getenv("SHODAN_API_KEY", "")
+# ── GitHub (Phase 4 Repo Auditor) ────────────────────────────────────────────
+# Optional: set a PAT to authenticate private-repo clones. Never logged.
+GITHUB_PAT: str = os.getenv("GITHUB_PAT", "")
 
 # ── HTB / THM Streak Monitor ──────────────────────────────────────────────────
 # HTB_API_TOKEN: generate at https://app.hackthebox.com/profile/settings → App Tokens
 HTB_API_TOKEN: str = os.getenv("HTB_API_TOKEN", "")
 # SEC_MONITOR_CHANNEL_ID: Discord channel where streak-danger alerts are posted
 SEC_MONITOR_CHANNEL_ID: int = int(os.getenv("SEC_MONITOR_CHANNEL_ID", "0"))
+
+# ── Phase 5 Bug Bounty Watchdog ───────────────────────────────────────────────
+# WATCHDOG_CHANNEL_ID: Discord channel where new-asset alerts are posted
+WATCHDOG_CHANNEL_ID: int = int(os.getenv("WATCHDOG_CHANNEL_ID", "0"))
+# WATCHDOG_DB_PATH: local SQLite file for target/subdomain baseline storage
+WATCHDOG_DB_PATH: str = os.getenv("WATCHDOG_DB_PATH", "data/watchdog.db")
+# WATCHDOG_INTERVAL_HOURS: how often the background loop rescans all targets
+WATCHDOG_INTERVAL_HOURS: int = int(os.getenv("WATCHDOG_INTERVAL_HOURS", "6"))

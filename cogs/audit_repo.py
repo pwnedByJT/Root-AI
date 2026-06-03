@@ -55,7 +55,7 @@ from discord import app_commands
 from discord.ext import commands
 from openai import AsyncOpenAI
 
-from config import BOT_OWNER_ID, LOCAL_LLM_URL, LOCAL_MODEL_NAME
+from config import BOT_OWNER_ID, GITHUB_PAT, LOCAL_LLM_URL, LOCAL_MODEL_NAME
 from cogs.security import run_parrot_command
 
 if TYPE_CHECKING:
@@ -362,11 +362,19 @@ async def _clone_and_grep(
     The caller is responsible for cleanup via try/finally.
     """
     # ── Clone ─────────────────────────────────────────────────────────────────
+    # Embed PAT in URL for private-repo access; never log the raw auth URL.
+    if GITHUB_PAT:
+        auth_url = github_url.replace("https://", f"https://{GITHUB_PAT}@")
+    else:
+        auth_url = github_url
     log.info("Audit: cloning %s into %s", github_url, work_dir)
     clone_out = await run_parrot_command(
-        f"git clone --depth=1 '{github_url}' '{work_dir}' 2>&1",
+        f"git clone --depth=1 '{auth_url}' '{work_dir}' 2>&1",
         timeout=90,
     )
+    # Scrub PAT from any error output before it touches Discord or logs
+    if GITHUB_PAT:
+        clone_out = clone_out.replace(GITHUB_PAT, "***")
     lower = clone_out.lower()
     if "fatal:" in lower or ("error:" in lower and "warning:" not in lower):
         return f"Clone failed:\n{clone_out}", "", ""
