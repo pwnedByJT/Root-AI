@@ -49,7 +49,14 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from config import BOT_OWNER_ID, WATCHDOG_CHANNEL_ID, WATCHDOG_DB_PATH, WATCHDOG_INTERVAL_HOURS
-from cogs.recon import ShodanResult, _shodan_host_info, _validate_domain, gather_subdomains
+from cogs.recon import (
+    CVEDetail,
+    ShodanResult,
+    _shodan_host_info,
+    _validate_domain,
+    enrich_cves,
+    gather_subdomains,
+)
 
 log = logging.getLogger("root_ai.watchdog")
 
@@ -511,7 +518,11 @@ def _build_baseline_embed(
     return embed
 
 
-def _build_alert_embed(domain: str, diff: ScanDiff) -> discord.Embed:
+def _build_alert_embed(
+    domain: str,
+    diff: ScanDiff,
+    enriched_cves: list[CVEDetail] | None = None,
+) -> discord.Embed:
     """Alert embed posted to WATCHDOG_CHANNEL_ID when new assets are detected."""
     change_count = (
         len(diff.new_subs)
@@ -579,9 +590,22 @@ def _build_alert_embed(domain: str, diff: ScanDiff) -> discord.Embed:
         )
 
     if diff.new_cves:
-        lines = [f"`{cve}`" for cve in diff.new_cves[:15]]
-        if len(diff.new_cves) > 15:
-            lines.append(f"`... +{len(diff.new_cves) - 15} more`")
+        if enriched_cves:
+            enriched_ids = {d.cve_id for d in enriched_cves}
+            lines: list[str] = []
+            for detail in enriched_cves:
+                score_str = f"{detail.score:.1f}" if detail.score is not None else "N/A"
+                desc = detail.description[:120]
+                lines.append(
+                    f"`{detail.cve_id}` [{detail.severity} {score_str}]: {desc}"
+                )
+            unenriched = [c for c in diff.new_cves if c not in enriched_ids]
+            if unenriched:
+                lines.append("Also reported: " + ", ".join(f"`{c}`" for c in unenriched[:10]))
+        else:
+            lines = [f"`{cve}`" for cve in diff.new_cves[:15]]
+            if len(diff.new_cves) > 15:
+                lines.append(f"`... +{len(diff.new_cves) - 15} more`")
         embed.add_field(
             name=f"⚠️ New CVEs ({len(diff.new_cves)})",
             value=_truncate_field(lines),
@@ -597,6 +621,7 @@ def _build_scan_embed(
     diff: ScanDiff,
     current_sub_count: int,
     baseline_sub_count: int,
+    enriched_cves: list[CVEDetail] | None = None,
 ) -> discord.Embed:
     """Ephemeral embed returned to the user for an on-demand /watchdog scan."""
     has_changes = diff.has_changes
@@ -675,12 +700,25 @@ def _build_scan_embed(
         )
 
     if diff.new_cves:
-        lines = [f"`{cve}`" for cve in diff.new_cves[:10]]
-        if len(diff.new_cves) > 10:
-            lines.append(f"`... +{len(diff.new_cves) - 10} more`")
+        if enriched_cves:
+            enriched_ids = {d.cve_id for d in enriched_cves}
+            cve_lines: list[str] = []
+            for detail in enriched_cves:
+                score_str = f"{detail.score:.1f}" if detail.score is not None else "N/A"
+                desc = detail.description[:120]
+                cve_lines.append(
+                    f"`{detail.cve_id}` [{detail.severity} {score_str}]: {desc}"
+                )
+            unenriched = [c for c in diff.new_cves if c not in enriched_ids]
+            if unenriched:
+                cve_lines.append("Also reported: " + ", ".join(f"`{c}`" for c in unenriched[:10]))
+        else:
+            cve_lines = [f"`{cve}`" for cve in diff.new_cves[:10]]
+            if len(diff.new_cves) > 10:
+                cve_lines.append(f"`... +{len(diff.new_cves) - 10} more`")
         embed.add_field(
             name=f"⚠️ New CVEs ({len(diff.new_cves)})",
-            value=_truncate_field(lines),
+            value=_truncate_field(cve_lines),
             inline=False,
         )
 
@@ -816,7 +854,7 @@ class WatchdogCog(commands.Cog, name="Watchdog"):
         # ── Upsert new baseline (includes last_scanned stamp) ─────────────────
         await self.db.full_upsert(domain, current_subs, sd)
 
-        # ── First scan → baseline embed only (no diff) ────────────────────────
+        # ── First scan → baseline embed only (no diff, skip NVD enrichment) ───
         if is_first_scan:
             ip_count = len(sd.ips) if sd else 0
             svc_count = len(sd.services) if sd else 0
@@ -840,6 +878,17 @@ class WatchdogCog(commands.Cog, name="Watchdog"):
             )
             return
 
+        # ── Enrich new CVEs via NVD (capped at 5; ~32s at free-tier rate) ─────
+        # Runs only on subsequent scans — baseline embeds show counts, not IDs.
+        enriched_cves: list[CVEDetail] = []
+        if diff.new_cves:
+            log.info(
+                "Watchdog: enriching %d new CVE(s) via NVD for %s",
+                min(len(diff.new_cves), 5),
+                domain,
+            )
+            enriched_cves = await enrich_cves(diff.new_cves)
+
         # ── Interactive: always reply with scan embed ─────────────────────────
         if interactive and interaction:
             embed = _build_scan_embed(
@@ -847,6 +896,7 @@ class WatchdogCog(commands.Cog, name="Watchdog"):
                 diff=diff,
                 current_sub_count=len(current_subs),
                 baseline_sub_count=len(baseline_subs),
+                enriched_cves=enriched_cves or None,
             )
             await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -858,7 +908,7 @@ class WatchdogCog(commands.Cog, name="Watchdog"):
                     "Watchdog: channel %d not found for %s", channel_id, domain
                 )
                 return
-            embed = _build_alert_embed(domain, diff)
+            embed = _build_alert_embed(domain, diff, enriched_cves=enriched_cves or None)
             await channel.send(embed=embed)  # type: ignore[union-attr]
             log.info(
                 "Watchdog: %s — alerted %d new_subs, %d new_ips, %d new_svcs, "
