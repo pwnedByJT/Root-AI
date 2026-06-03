@@ -200,6 +200,9 @@ class AutoPwnResult:
     total_duration_s: float = 0.0
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     error: str = ""
+    # Phase 7/8 enrichment — populated by _run_react_agent; consumed by Phase 4 export
+    enriched_cves: list[CVEDetail] = field(default_factory=list)
+    exploit_suggestions: list[ExploitMatch] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +266,7 @@ async def _run_react_agent(
         if sd and sd.vulns:
             await progress_cb("🔍 Enriching CVE data via NVD (free tier — may take ~30s)...")
             enriched: list[CVEDetail] = await enrich_cves(sd.vulns)
+            result.enriched_cves = enriched
             if enriched:
                 enriched_ids = {d.cve_id for d in enriched}
                 cve_lines: list[str] = []
@@ -301,6 +305,7 @@ async def _run_react_agent(
         if exploit_queries:
             await progress_cb("💣 Searching ExploitDB for known exploits...")
             exploits: list[ExploitMatch] = await search_exploits(exploit_queries[:5])
+            result.exploit_suggestions = exploits
             if exploits:
                 exploit_lines: list[str] = []
                 for e in exploits[:10]:
