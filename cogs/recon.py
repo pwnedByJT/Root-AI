@@ -320,9 +320,10 @@ async def _shodan_host_info(domain: str) -> Optional[ShodanResult]:
             if cve not in result.vulns:
                 result.vulns.append(cve)
 
-        # Collect services
+        # Collect services — include 'ip' so consumers can track per-IP port state
         for item in host.get("data", []):
             service: dict = {
+                "ip": ip,
                 "port": item.get("port", 0),
                 "proto": item.get("transport", "tcp"),
                 "product": item.get("product", ""),
