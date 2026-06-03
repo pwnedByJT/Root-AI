@@ -4,6 +4,17 @@ SSH-based nmap scanning via the Parrot OS WSL workstation.
 
 Registers ``run_parrot_nmap_scan`` with the shared ChatContextManager so
 the LLM can invoke it as a tool call.
+
+Intent predicate
+----------------
+``_nmap_predicate`` is passed to ``register_tool`` so the LLM manager can
+reject hallucinated scan calls before they execute.  It requires the user's
+message to contain either:
+  - An IPv4 address or CIDR range  (unambiguous network target), OR
+  - An explicit scan keyword (scan/nmap/recon/audit/enumerate/ports)
+    combined with a hostname or domain.
+This prevents the model from calling ``run_parrot_nmap_scan`` on unrelated
+questions like "what is 10 * 10?".
 """
 
 from __future__ import annotations
@@ -32,6 +43,35 @@ _SAFE_ARGS_RE = re.compile(r"[^a-zA-Z0-9.\-_ ]")
 def _sanitize(value: str, pattern: re.Pattern, max_len: int = 256) -> str:
     """Strip characters not in the allowlist and trim length."""
     return pattern.sub("", value)[:max_len].strip()
+
+
+# ---------------------------------------------------------------------------
+# Intent predicate — guards against hallucinated tool calls
+# ---------------------------------------------------------------------------
+
+_IP_CIDR_RE = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}(?:/\d{1,2})?\b")
+_SCAN_KW_RE = re.compile(
+    r"\b(?:scan|nmap|recon|audit|enumerate|ports?|host\s*discovery)\b",
+    re.IGNORECASE,
+)
+_HOSTNAME_RE = re.compile(r"\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b")
+
+
+def _nmap_predicate(user_text: str) -> bool:
+    """
+    Returns True only when the message legitimately warrants a network scan.
+
+    Conditions (either must be true):
+    - An IPv4 address or CIDR range is present (e.g. 192.168.1.1, 10.0.0.0/24)
+    - A scan-intent keyword (scan, nmap, recon …) AND a hostname/domain are present
+
+    This rejects calls triggered by math, coding, or general questions that
+    contain no network target.
+    """
+    has_ip = bool(_IP_CIDR_RE.search(user_text))
+    has_kw = bool(_SCAN_KW_RE.search(user_text))
+    has_host = bool(_HOSTNAME_RE.search(user_text))
+    return has_ip or (has_kw and has_host)
 
 
 # ---------------------------------------------------------------------------
@@ -87,8 +127,13 @@ NMAP_TOOL_SPEC: dict = {
     "function": {
         "name": "run_parrot_nmap_scan",
         "description": (
-            "Run an nmap scan against a target host, IP address, or CIDR range "
-            "via a locally connected Parrot OS security workstation."
+            "CRITICAL: Use ONLY when the user EXPLICITLY requests a network security scan, "
+            "nmap audit, or infrastructure recon AND their message contains a specific scan "
+            "target such as an IP address (e.g. 192.168.1.1), CIDR range (e.g. 10.0.0.0/24), "
+            "or hostname (e.g. example.com). "
+            "NEVER call this tool for general conversation, programming help, mathematical "
+            "calculations, security education questions, or any message that does not name "
+            "an explicit network target."
         ),
         "parameters": {
             "type": "object",
@@ -131,7 +176,12 @@ class SecurityCog(commands.Cog, name="Security"):
             arguments: str = args.get("arguments", "-F")
             return await run_parrot_nmap_scan(target=target, arguments=arguments)
 
-        self._chat.register_tool("run_parrot_nmap_scan", _nmap_handler, NMAP_TOOL_SPEC)
+        self._chat.register_tool(
+            "run_parrot_nmap_scan",
+            _nmap_handler,
+            NMAP_TOOL_SPEC,
+            predicate=_nmap_predicate,
+        )
 
 
 async def setup(bot: commands.Bot) -> None:

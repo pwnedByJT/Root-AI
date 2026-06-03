@@ -22,6 +22,22 @@ from discord.ext import commands
 
 from services.llm_manager import ChatContextManager
 
+# ---------------------------------------------------------------------------
+# Intent predicate — shared by all moderation tools
+# ---------------------------------------------------------------------------
+
+_MENTION_RE = re.compile(r"<@!?\d+>")
+
+
+def _mention_predicate(user_text: str) -> bool:
+    """
+    Returns True only when a Discord @mention (<@ID> or <@!ID>) is present.
+
+    All moderation tools require an explicit target user.  If the LLM hallucinates
+    a role/kick/ban call on a message with no @mention, the guardrail drops it.
+    """
+    return bool(_MENTION_RE.search(user_text))
+
 log = logging.getLogger("root_ai.moderation")
 
 # ---------------------------------------------------------------------------
@@ -181,8 +197,9 @@ REMOVE_ROLE_TOOL_SPEC: dict = {
     "function": {
         "name": "remove_user_role",
         "description": (
-            "Removes a specific role from a Discord user. "
-            "Use this when asked to demote, revoke, or remove a role from someone."
+            "CRITICAL: Use ONLY when explicitly asked to remove, revoke, or strip a role "
+            "from a Discord user AND a Discord @mention (<@ID>) is present in the message. "
+            "NEVER call for general questions, education, or messages without an @mention."
         ),
         "parameters": {
             "type": "object",
@@ -210,8 +227,9 @@ ADD_ROLE_TOOL_SPEC: dict = {
     "function": {
         "name": "add_user_role",
         "description": (
-            "Grants a specific role to a Discord user. "
-            "Use this when asked to promote, assign, or give a role to someone."
+            "CRITICAL: Use ONLY when explicitly asked to add, grant, or assign a role "
+            "to a Discord user AND a Discord @mention (<@ID>) is present in the message. "
+            "NEVER call for general questions, education, or messages without an @mention."
         ),
         "parameters": {
             "type": "object",
@@ -239,8 +257,9 @@ KICK_USER_TOOL_SPEC: dict = {
     "function": {
         "name": "kick_user",
         "description": (
-            "Kicks a specific user from the Discord server. "
-            "Use this when the user explicitly asks to kick someone."
+            "CRITICAL: Use ONLY when explicitly asked to kick a specific Discord user "
+            "AND a Discord @mention (<@ID>) is present in the message. "
+            "NEVER call for general questions or messages without an @mention."
         ),
         "parameters": {
             "type": "object",
@@ -263,8 +282,9 @@ BAN_USER_TOOL_SPEC: dict = {
     "function": {
         "name": "ban_user",
         "description": (
-            "Bans a specific user from the Discord server. "
-            "Use this when the user explicitly asks to ban someone."
+            "CRITICAL: Use ONLY when explicitly asked to ban a specific Discord user "
+            "AND a Discord @mention (<@ID>) is present in the message. "
+            "NEVER call for general questions or messages without an @mention."
         ),
         "parameters": {
             "type": "object",
@@ -317,10 +337,10 @@ class ModerationCog(commands.Cog, name="Moderation"):
         async def _ban_handler(args: dict, message: discord.Message) -> str:
             return await ban_user(args.get("target_user", ""), message)
 
-        self._chat.register_tool("remove_user_role", _remove_role_handler, REMOVE_ROLE_TOOL_SPEC)
-        self._chat.register_tool("add_user_role", _add_role_handler, ADD_ROLE_TOOL_SPEC)
-        self._chat.register_tool("kick_user", _kick_handler, KICK_USER_TOOL_SPEC)
-        self._chat.register_tool("ban_user", _ban_handler, BAN_USER_TOOL_SPEC)
+        self._chat.register_tool("remove_user_role", _remove_role_handler, REMOVE_ROLE_TOOL_SPEC, predicate=_mention_predicate)
+        self._chat.register_tool("add_user_role", _add_role_handler, ADD_ROLE_TOOL_SPEC, predicate=_mention_predicate)
+        self._chat.register_tool("kick_user", _kick_handler, KICK_USER_TOOL_SPEC, predicate=_mention_predicate)
+        self._chat.register_tool("ban_user", _ban_handler, BAN_USER_TOOL_SPEC, predicate=_mention_predicate)
 
 
 async def setup(bot: commands.Bot) -> None:
