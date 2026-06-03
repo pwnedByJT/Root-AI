@@ -46,7 +46,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from config import BOT_OWNER_ID, SHODAN_API_KEY
+from config import BOT_OWNER_ID, NVD_API_KEY, SHODAN_API_KEY
 from cogs.security import run_parrot_command, run_parrot_nmap_scan
 
 log = logging.getLogger("root_ai.recon")
@@ -360,26 +360,34 @@ async def enrich_cves(cve_ids: list[str]) -> list[CVEDetail]:
     """
     Fetch CVSS scores and descriptions for *cve_ids* from the NVD 2.0 API.
 
-    Caps at 5 CVEs and sleeps 6.5 s between requests to stay within the
-    free-tier limit of 5 requests per rolling 30-second window.
+    Rate limits (rolling 30-second window):
+      - No key (NVD_API_KEY unset): 5 req / 30 s → 6.5 s inter-request sleep
+      - With NVD_API_KEY:          50 req / 30 s → 0.6 s inter-request sleep
 
-    Returns a (possibly shorter) list of CVEDetail on success; gracefully
-    skips any CVE that is unknown to NVD (HTTP 404) or times out.
+    Caps at 5 CVEs regardless of key status to bound total wait time.
+    Returns a (possibly shorter) list of CVEDetail; gracefully skips any
+    CVE unknown to NVD (HTTP 404) or that times out.
     Public API — importable by ``cogs.autopwn`` and ``cogs.watchdog``.
     """
     if not cve_ids:
         return []
 
+    # Authenticated tier: 50 req/30s (0.6s sleep); unauthenticated: 5 req/30s (6.5s sleep)
+    _sleep = 0.6 if NVD_API_KEY else 6.5
+    _headers: dict[str, str] = {"Accept": "application/json"}
+    if NVD_API_KEY:
+        _headers["apiKey"] = NVD_API_KEY
+
     results: list[CVEDetail] = []
     async with aiohttp.ClientSession() as session:
         for i, cve_id in enumerate(cve_ids[:5]):  # hard cap at 5
             if i > 0:
-                await asyncio.sleep(6.5)  # NVD free tier: 5 req / 30 s
+                await asyncio.sleep(_sleep)
             try:
                 async with session.get(
                     "https://services.nvd.nist.gov/rest/json/cves/2.0",
                     params={"cveId": cve_id},
-                    headers={"Accept": "application/json"},
+                    headers=_headers,
                     timeout=aiohttp.ClientTimeout(total=15),
                 ) as resp:
                     if resp.status == 404:
