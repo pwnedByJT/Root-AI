@@ -54,6 +54,17 @@ HTB_API_TOKEN: str = os.getenv("HTB_API_TOKEN", "")
 # SEC_MONITOR_CHANNEL_ID: Discord channel where streak-danger alerts are posted
 SEC_MONITOR_CHANNEL_ID: int = int(os.getenv("SEC_MONITOR_CHANNEL_ID", "0"))
 
+# ── Shodan (Phase 1 / 5 — OSINT & Watchdog) ──────────────────────────────────
+# Free-tier api.host() — no query credits consumed. Leave empty to disable Shodan.
+# Generate at: https://account.shodan.io → API Keys
+SHODAN_API_KEY: str = os.getenv("SHODAN_API_KEY", "")
+
+# ── NVD (Phase 7 — CVE enrichment) ────────────────────────────────────────────
+# Optional. Without a key: 5 req / 30 s (6.5 s sleep between lookups).
+# With a key: 50 req / 30 s (0.6 s sleep) — significantly faster enrichment.
+# Register free at: https://nvd.nist.gov/developers/request-an-api-key
+NVD_API_KEY: str = os.getenv("NVD_API_KEY", "")
+
 # ── Phase 5 Bug Bounty Watchdog ───────────────────────────────────────────────
 # WATCHDOG_CHANNEL_ID: Discord channel where new-asset alerts are posted
 WATCHDOG_CHANNEL_ID: int = int(os.getenv("WATCHDOG_CHANNEL_ID", "0"))
