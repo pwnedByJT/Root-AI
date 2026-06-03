@@ -44,6 +44,10 @@ TWITCH_CLIENT_SECRET: str = os.getenv("ROOT_AI_TWITCH_CLIENT_SECRET", "")
 TWITCH_BROADCASTER_LOGIN: str = "pwnedByJT"
 TWITCH_NOTIFY_CHANNEL_ID: int = 1207980068807249930
 
+# ── Shodan ───────────────────────────────────────────────────────────────────
+# Free tier available at https://account.shodan.io — 1 query credit/month
+SHODAN_API_KEY: str = os.getenv("SHODAN_API_KEY", "")
+
 # ── GitHub (Phase 4 Repo Auditor) ────────────────────────────────────────────
 # Optional: set a PAT to authenticate private-repo clones. Never logged.
 GITHUB_PAT: str = os.getenv("GITHUB_PAT", "")
