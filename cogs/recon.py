@@ -458,7 +458,10 @@ def _parse_open_ports(nmap_output: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _build_recon_embed(result: ReconResult) -> discord.Embed:
+def _build_recon_embed(
+    result: ReconResult,
+    enriched_cves: list[CVEDetail] | None = None,
+) -> discord.Embed:
     """Build the main recon report embed from a completed ReconResult."""
     embed = discord.Embed(
         title=f"🔍 Recon Report — `{result.domain}`",
@@ -533,7 +536,8 @@ def _build_recon_embed(result: ReconResult) -> discord.Embed:
                 if len(sd.services) > 10:
                     svc_lines.append(f"`... +{len(sd.services) - 10} more`")
                 lines.append("**Services:**\n" + "\n".join(svc_lines))
-            if sd.vulns:
+            # CVEs shown here only when not enriched — enriched path uses its own field below
+            if sd.vulns and not enriched_cves:
                 cve_text = " ".join(f"`{v}`" for v in sd.vulns[:10])
                 if len(sd.vulns) > 10:
                     cve_text += f" `+{len(sd.vulns) - 10} more`"
@@ -549,6 +553,28 @@ def _build_recon_embed(result: ReconResult) -> discord.Embed:
                 value="Host not indexed or no open services recorded.",
                 inline=False,
             )
+
+    # ── CVE Enrichment field (separate field when NVD data available) ────────
+    if sd and sd.vulns and enriched_cves:
+        enriched_ids = {d.cve_id for d in enriched_cves}
+        cve_lines: list[str] = []
+        for detail in enriched_cves:
+            score_str = f"{detail.score:.1f}" if detail.score is not None else "N/A"
+            desc = detail.description[:120]
+            cve_lines.append(
+                f"`{detail.cve_id}` **[{detail.severity} {score_str}]**\n{desc}"
+            )
+        unenriched = [v for v in sd.vulns if v not in enriched_ids]
+        if unenriched:
+            cve_lines.append(
+                "Also reported: " + " ".join(f"`{v}`" for v in unenriched[:10])
+                + (f" `+{len(unenriched) - 10} more`" if len(unenriched) > 10 else "")
+            )
+        embed.add_field(
+            name=f"⚠️ CVEs — Enriched  ({len(sd.vulns)} total, {len(enriched_cves)} scored)",
+            value="\n".join(cve_lines)[:1020],
+            inline=False,
+        )
     # sd is None → SHODAN_API_KEY not set; omit the field entirely
 
     # ── Error notes (if any partial failures occurred) ───────────────────────
@@ -724,7 +750,7 @@ class ReconCog(commands.Cog, name="Recon"):
             len(open_ports),
         )
 
-        # ── Build and send result ─────────────────────────────────────────────
+        # ── Build result ──────────────────────────────────────────────────────
         result = ReconResult(
             domain=clean_domain,
             subdomains=subdomains,
@@ -734,7 +760,17 @@ class ReconCog(commands.Cog, name="Recon"):
             error_notes=error_notes,
         )
 
-        embed = _build_recon_embed(result)
+        # ── Enrich CVEs via NVD (cap 5; ~32s at free-tier rate) ──────────────
+        enriched_cves: list[CVEDetail] = []
+        if shodan_data and shodan_data.vulns:
+            log.info(
+                "RECON: enriching %d CVE(s) via NVD for %s",
+                min(len(shodan_data.vulns), 5),
+                clean_domain,
+            )
+            enriched_cves = await enrich_cves(shodan_data.vulns)
+
+        embed = _build_recon_embed(result, enriched_cves=enriched_cves or None)
         view = ReconView(result)
 
         await interaction.followup.send(embed=embed, view=view)
