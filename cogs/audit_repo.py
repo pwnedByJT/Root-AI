@@ -169,6 +169,21 @@ VULN_CONFIGS: dict[str, VulnConfig] = {
         file_globs=("*.py", "*.php", "*.js", "*.ts", "*.rb", "*.go"),
         description="Unvalidated URL parameters used in server-side HTTP redirects.",
     ),
+    "password_hash": VulnConfig(
+        display="Hardcoded Password Hashes",
+        severity="High",
+        grep_expr=(
+            r"(password|passwd|pwd|pass|hash)\s*[=:]\s*['\"][a-fA-F0-9]{32,128}['\"]|"
+            r"\$2[aby]?\$\d{2}\$[./A-Za-z0-9]{53}|"
+            r"\$1\$[./A-Za-z0-9]{1,8}\$[./A-Za-z0-9]{22}|"
+            r"\$6\$[./A-Za-z0-9]"
+        ),
+        file_globs=(
+            "*.py", "*.php", "*.js", "*.rb", "*.go", "*.java",
+            "*.env", "*.yml", "*.yaml", "*.json", "*.conf", "*.ini", "*.cfg",
+        ),
+        description="Hardcoded password hashes committed to source code.",
+    ),
 }
 
 # ---------------------------------------------------------------------------
@@ -861,6 +876,8 @@ class AuditRepoCog(commands.Cog, name="Audit"):
             name="Insecure Deserialization \u2014 pickle/YAML/XML",       value="insecure_deser"),
         app_commands.Choice(
             name="Open Redirect \u2014 unvalidated URL redirects",        value="open_redirect"),
+        app_commands.Choice(
+            name="Password Hashes \u2014 hardcoded hash strings in code", value="password_hash"),
     ])
     async def audit_repo(
         self,
