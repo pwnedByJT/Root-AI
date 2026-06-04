@@ -136,9 +136,55 @@ RULES:
   2. If nikto is not in the available tools, do not choose it.
   3. Choose "synthesize" when you have collected sufficient data OR exhausted all tools.
   4. Keep "reasoning" to 1–2 sentences for non-synthesize actions.
+
+SECURE STATES — these are NOT vulnerabilities, do NOT flag them:
+  • "connection refused"   → port is closed, firewall is working correctly
+  • "filtered"             → packet filtered by firewall — this is a hardened state
+  • "closed"               → service not running — not exploitable
+  • "timeout" / "timed out" → no route or filtered — not exploitable
+  • "403 Forbidden"        → access control is working correctly
+  • "no route to host"     → network unreachable — not exploitable
+
+ACTIONABLE VULNERABILITIES — only flag if tool output contains EXPLICIT evidence:
+  • Anonymous FTP login succeeded (literal "Login successful" in ftp output)
+  • Default credentials accepted (literal successful authentication output)
+  • Unauthenticated database access (literal connection banner with no auth prompt)
+  • Nuclei CVE match with severity Critical or High and confirmed template hit
+  • Open port with a service banner showing a version with a known unpatched CVE
+
+FALSE POSITIVE BAN:
+  NEVER fabricate or infer vulnerabilities from failed network connections.
+  If tool output shows only closed ports, filtered ports, timeouts, or HTTP 4xx errors,
+  the synthesize summary MUST state: "No vulnerabilities discovered during this assessment."
+  Do not speculate about what *could* be vulnerable. Only report what the tools PROVED.
 """
 
 _OBS_MAX_CHARS = 2_000  # truncate observations before re-feeding to LLM
+
+# ---------------------------------------------------------------------------
+# Observation pre-processor — labels secure states so low-quality LLMs
+# cannot mistake them for exploitable conditions.
+# ---------------------------------------------------------------------------
+
+_SECURE_STATE_PATTERNS = re.compile(
+    r"(connection refused|filtered|closed|timed? ?out|403 Forbidden|"
+    r"no route to host|Host seems down|0 hosts up)",
+    re.IGNORECASE,
+)
+
+
+def _annotate_observation(obs: str) -> str:
+    """
+    Prefix each line containing a secure network state with a label so the LLM
+    cannot mistake 'connection refused' or 'filtered' for a vulnerability.
+    """
+    annotated_lines = []
+    for line in obs.splitlines():
+        if _SECURE_STATE_PATTERNS.search(line):
+            annotated_lines.append(f"[SECURE STATE — NOT A VULNERABILITY] {line}")
+        else:
+            annotated_lines.append(line)
+    return "\n".join(annotated_lines)
 
 # ---------------------------------------------------------------------------
 # JSON extraction (LLM may wrap output in markdown fences)
@@ -391,7 +437,7 @@ async def _run_react_agent(
                 _ollama_client.chat.completions.create(
                     model=LOCAL_MODEL_NAME,
                     messages=messages,
-                    temperature=0.2,
+                    temperature=0.1,
                     top_p=0.9,
                 ),
                 timeout=60,
@@ -530,10 +576,11 @@ async def _run_react_agent(
         )
 
         # ── Observe ──────────────────────────────────────────────────────────
+        annotated_obs = _annotate_observation(observation)
         messages.append({
             "role": "user",
             "content": (
-                f"OBSERVATION from {action}:\n```\n{observation}\n```\n\n"
+                f"OBSERVATION from {action}:\n```\n{annotated_obs}\n```\n\n"
                 "Choose your next action."
             ),
         })
@@ -545,7 +592,7 @@ async def _run_react_agent(
         if result.cycles:
             await progress_cb("📋 Generating summary from collected observations...")
             obs_block = "\n\n".join(
-                f"[{c.action} — cycle {c.cycle_num}]\n{c.observation[:500]}"
+                f"[{c.action} — cycle {c.cycle_num}]\n{_annotate_observation(c.observation[:500])}"
                 for c in result.cycles
             )
             synth_messages = [
@@ -555,7 +602,11 @@ async def _run_react_agent(
                     "content": (
                         f"TARGET: {target}\n\nCollected tool observations:\n{obs_block}\n\n"
                         "Write the full executive summary as plain text (not JSON). "
-                        "Include findings, severity, attack vectors, and next steps."
+                        "Include findings, severity, attack vectors, and next steps. "
+                        "REMEMBER: lines labelled [SECURE STATE — NOT A VULNERABILITY] are "
+                        "closed/filtered ports and MUST NOT be listed as vulnerabilities. "
+                        "If no explicit exploitable evidence exists, state: "
+                        "'No vulnerabilities discovered during this assessment.'"
                     ),
                 },
             ]
@@ -564,7 +615,7 @@ async def _run_react_agent(
                     _ollama_client.chat.completions.create(
                         model=LOCAL_MODEL_NAME,
                         messages=synth_messages,
-                        temperature=0.3,
+                        temperature=0.1,
                         top_p=0.9,
                     ),
                     timeout=90,

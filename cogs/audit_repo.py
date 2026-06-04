@@ -337,6 +337,18 @@ RESPONSE FORMAT \u2014 reply with ONLY valid JSON, no markdown, no prose:
   "proof_of_concept": "Specific attack commands, payloads, or curl demonstrating the issues",
   "remediation": "Prioritised remediation steps with specific hardening recommendations"
 }
+
+SECURE STATES — these are NOT vulnerabilities, do NOT include them in the report:
+  • "connection refused", "filtered", "closed" → port is not exposed, this is correct behaviour
+  • "timeout" / "timed out" → network path is blocked — not exploitable
+  • "403 Forbidden" → access control is enforced — not a vulnerability
+  • "no route to host", "Host seems down" → target is unreachable — not exploitable
+
+Only list a vulnerability if the observations contain EXPLICIT proof of exploitation
+(e.g., successful anonymous login, unauthenticated DB access, confirmed CVE template hit).
+If no such evidence exists, set severity to "Info" and state in the summary:
+"No exploitable vulnerabilities were confirmed during this assessment."
+Do NOT speculate or infer vulnerabilities from network errors or refused connections.
 """
 
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
