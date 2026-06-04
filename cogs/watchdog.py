@@ -51,6 +51,7 @@ from discord.ext import commands, tasks
 from config import BOT_OWNER_ID, WATCHDOG_CHANNEL_ID, WATCHDOG_DB_PATH, WATCHDOG_INTERVAL_HOURS
 from cogs.exploit_suggester import ExploitMatch, search_exploits
 from cogs.nuclei import NucleiFinding, run_nuclei_scan
+from cogs.poc_hunter import PoCResult, fetch_poc_repos
 from cogs.recon import (
     CVEDetail,
     ShodanResult,
@@ -526,6 +527,7 @@ def _build_alert_embed(
     enriched_cves: list[CVEDetail] | None = None,
     exploit_suggestions: list[ExploitMatch] | None = None,
     nuclei_findings: list[NucleiFinding] | None = None,
+    poc_results: list[PoCResult] | None = None,
 ) -> discord.Embed:
     """Alert embed posted to WATCHDOG_CHANNEL_ID when new assets are detected."""
     change_count = (
@@ -641,6 +643,24 @@ def _build_alert_embed(
             inline=False,
         )
 
+    if poc_results:
+        lines = []
+        for pr in poc_results:
+            if pr.error or not pr.repos:
+                continue
+            top = pr.repos[0]
+            trickest = f" · [trickest]({pr.trickest_url})" if pr.trickest_url else ""
+            lines.append(
+                f"`{pr.cve_id}` — ⭐{top.stars:,} [`{top.full_name}`]({top.url})"
+                f" (+{len(pr.repos) - 1} more){trickest}"
+            )
+        if lines:
+            embed.add_field(
+                name=f"🧬 PoC Exploits ({len(lines)} CVE(s))",
+                value=_truncate_field(lines),
+                inline=False,
+            )
+
     embed.set_footer(text=_FOOTER)
     return embed
 
@@ -653,6 +673,7 @@ def _build_scan_embed(
     enriched_cves: list[CVEDetail] | None = None,
     exploit_suggestions: list[ExploitMatch] | None = None,
     nuclei_findings: list[NucleiFinding] | None = None,
+    poc_results: list[PoCResult] | None = None,
 ) -> discord.Embed:
     """Ephemeral embed returned to the user for an on-demand /watchdog scan."""
     has_changes = diff.has_changes
@@ -776,6 +797,24 @@ def _build_scan_embed(
             value=_truncate_field(lines),
             inline=False,
         )
+
+    if poc_results:
+        lines = []
+        for pr in poc_results:
+            if pr.error or not pr.repos:
+                continue
+            top = pr.repos[0]
+            trickest = f" · [trickest]({pr.trickest_url})" if pr.trickest_url else ""
+            lines.append(
+                f"`{pr.cve_id}` — ⭐{top.stars:,} [`{top.full_name}`]({top.url})"
+                f" (+{len(pr.repos) - 1} more){trickest}"
+            )
+        if lines:
+            embed.add_field(
+                name=f"🧬 PoC Exploits ({len(lines)} CVE(s))",
+                value=_truncate_field(lines),
+                inline=False,
+            )
 
     embed.set_footer(text="Root AI • Phase 5 Bug Bounty Watchdog")
     return embed
@@ -998,6 +1037,28 @@ class WatchdogCog(commands.Cog, name="Watchdog"):
                     deduped.append(f)
             watchdog_nuclei = deduped[:25]
 
+        # ── Phase 13: PoC hunt for critical new CVEs (score ≥ 9.0) ───────────
+        # Cap: 3 CVEs × 2 HTTP sources = 6 API calls per scan cycle.
+        # With GITHUB_PAT: 30 req/min — well within budget.
+        # Without PAT:     10 req/min — still fine for ≤ 3 CVEs.
+        watchdog_pocs: list[PoCResult] = []
+        if enriched_cves:
+            critical_cve_ids = [
+                d.cve_id for d in enriched_cves
+                if d.score is not None and d.score >= 9.0
+            ]
+            if critical_cve_ids:
+                log.info(
+                    "Watchdog: hunting PoCs for %d critical CVE(s) for %s",
+                    len(critical_cve_ids),
+                    domain,
+                )
+                poc_tasks = [fetch_poc_repos(cve_id) for cve_id in critical_cve_ids[:3]]
+                poc_raw = await asyncio.gather(*poc_tasks, return_exceptions=True)
+                for pr in poc_raw:
+                    if isinstance(pr, PoCResult):
+                        watchdog_pocs.append(pr)
+
         # ── Interactive: always reply with scan embed ─────────────────────────
         if interactive and interaction:
             embed = _build_scan_embed(
@@ -1008,6 +1069,7 @@ class WatchdogCog(commands.Cog, name="Watchdog"):
                 enriched_cves=enriched_cves or None,
                 exploit_suggestions=exploit_suggestions or None,
                 nuclei_findings=watchdog_nuclei or None,
+                poc_results=watchdog_pocs or None,
             )
             await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -1025,6 +1087,7 @@ class WatchdogCog(commands.Cog, name="Watchdog"):
                 enriched_cves=enriched_cves or None,
                 exploit_suggestions=exploit_suggestions or None,
                 nuclei_findings=watchdog_nuclei or None,
+                poc_results=watchdog_pocs or None,
             )
             await channel.send(embed=embed)  # type: ignore[union-attr]
             log.info(

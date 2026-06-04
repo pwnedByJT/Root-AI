@@ -51,6 +51,7 @@ EXTENSIONS = [
     "cogs.password_audit",    # Phase 11 Password Hash Auditor — /password_audit + crack_hashes()
     "cogs.watchdog",          # Phase 5 Bug Bounty Watchdog — /watchdog + background loop
     "cogs.exploit_suggester", # Phase 8 Exploit Suggester — /exploits + search_exploits()
+    "cogs.poc_hunter",        # Phase 13 CVE PoC Hunter — /poc + fetch_poc_repos()
     "cogs.ai_chat",           # Always last — consumes all registered tools
 ]
 
