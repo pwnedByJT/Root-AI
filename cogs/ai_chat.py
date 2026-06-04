@@ -130,14 +130,15 @@ class AIChatCog(commands.Cog, name="AI Chat"):
         if twitch_cog is None or twitch_cog.is_live is None:
             return ""
 
+        broadcaster = config.TWITCH_BROADCASTER_LOGIN
         if twitch_cog.is_live:
             return (
-                "\n\nSTREAM STATUS: pwnedByJT is currently **LIVE** on Twitch. "
-                "Watch at https://twitch.tv/pwnedByJT"
+                f"\n\nSTREAM STATUS: {broadcaster} is currently **LIVE** on Twitch. "
+                f"Watch at https://twitch.tv/{broadcaster}"
             )
         return (
-            "\n\nSTREAM STATUS: pwnedByJT is currently **offline** on Twitch. "
-            "Channel: https://twitch.tv/pwnedByJT"
+            f"\n\nSTREAM STATUS: {broadcaster} is currently **offline** on Twitch. "
+            f"Channel: https://twitch.tv/{broadcaster}"
         )
 
     # ------------------------------------------------------------------

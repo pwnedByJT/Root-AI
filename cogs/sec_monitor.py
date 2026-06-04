@@ -62,7 +62,7 @@ log = logging.getLogger("root_ai.sec_monitor")
 # Identity — update here if the username ever changes
 # ---------------------------------------------------------------------------
 
-HTB_USERNAME: str = "pwnedByJT"
+HTB_USERNAME: str = config.BOT_OWNER_USERNAME
 
 # ---------------------------------------------------------------------------
 # Streak danger threshold
@@ -146,8 +146,8 @@ async def fetch_htb_data(api_token: str) -> dict:
         async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
             # ── Step 1: resolve user id + rank ─────────────────────────────
             # BYPASSED: The /user/info endpoint is currently returning a 404.
-            # We are hardcoding the ID directly to ensure the streak monitor functions.
-            user_id: int = 2203566
+            # We are using HTB_USER_ID from env to ensure the streak monitor functions.
+            user_id: int = config.HTB_USER_ID
             rank: str = "Apprentice"  # Fallback since endpoint is down
             points: int = 0           # Fallback since endpoint is down
             info: dict = {"name": HTB_USERNAME}

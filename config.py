@@ -14,7 +14,8 @@ load_dotenv()
 # ── Discord ──────────────────────────────────────────────────────────────────
 DISCORD_TOKEN: str = os.getenv("ROOT_AI_DISCORD_TOKEN") or os.getenv("DISCORD_TOKEN", "")
 BOT_PREFIX: str = os.getenv("BOT_PREFIX", ".")
-BOT_OWNER_ID: int = 389271525485707274  # pwnedByJT — used for @mentions in access-denied replies
+BOT_OWNER_ID: int = int(os.getenv("BOT_OWNER_ID", "0"))
+BOT_OWNER_USERNAME: str = os.getenv("BOT_OWNER_USERNAME", "")
 GUILD_ID: int = int(os.getenv("DISCORD_GUILD_ID", "0"))
 
 if not DISCORD_TOKEN:
@@ -41,8 +42,8 @@ C2_SUBNET_CIDR: str = os.getenv("C2_SUBNET_CIDR", "192.168.1.0/24")
 # ── Twitch ────────────────────────────────────────────────────────────────────
 TWITCH_CLIENT_ID: str = os.getenv("ROOT_AI_TWITCH_CLIENT_ID", "")
 TWITCH_CLIENT_SECRET: str = os.getenv("ROOT_AI_TWITCH_CLIENT_SECRET", "")
-TWITCH_BROADCASTER_LOGIN: str = "pwnedByJT"
-TWITCH_NOTIFY_CHANNEL_ID: int = 1207980068807249930
+TWITCH_BROADCASTER_LOGIN: str = os.getenv("TWITCH_BROADCASTER_LOGIN", "")
+TWITCH_NOTIFY_CHANNEL_ID: int = int(os.getenv("TWITCH_NOTIFY_CHANNEL_ID", "0"))
 
 # ── GitHub (Phase 4 Repo Auditor) ────────────────────────────────────────────
 # Optional: set a PAT to authenticate private-repo clones. Never logged.
@@ -51,6 +52,7 @@ GITHUB_PAT: str = os.getenv("GITHUB_PAT", "")
 # ── HTB / THM Streak Monitor ──────────────────────────────────────────────────
 # HTB_API_TOKEN: generate at https://app.hackthebox.com/profile/settings → App Tokens
 HTB_API_TOKEN: str = os.getenv("HTB_API_TOKEN", "")
+HTB_USER_ID: int = int(os.getenv("HTB_USER_ID", "0"))
 # SEC_MONITOR_CHANNEL_ID: Discord channel where streak-danger alerts are posted
 SEC_MONITOR_CHANNEL_ID: int = int(os.getenv("SEC_MONITOR_CHANNEL_ID", "0"))
 

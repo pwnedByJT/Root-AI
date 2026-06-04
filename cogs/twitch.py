@@ -271,13 +271,13 @@ class TwitchCog(commands.Cog, name="Twitch"):
                 channel = self.bot.get_channel(TWITCH_NOTIFY_CHANNEL_ID)
                 if channel:
                     embed = discord.Embed(
-                        title="🔴 pwnedByJT is LIVE!",
+                        title=f"🔴 {TWITCH_BROADCASTER_LOGIN} is LIVE!",
                         description=(
                             "**Watch the stream:**\n"
-                            "[🟣 Twitch](https://twitch.tv/pwnedByJT)  •  "
-                            "[🟩 Kick](https://kick.com/pwnedbyjt)  •  "
-                            "[🔴 YouTube](https://www.youtube.com/@pwnedByJT)  •  "
-                            "[🎵 TikTok](https://www.tiktok.com/@pwnedbyjt)"
+                            f"[🟣 Twitch](https://twitch.tv/{TWITCH_BROADCASTER_LOGIN})  •  "
+                            f"[🟩 Kick](https://kick.com/{TWITCH_BROADCASTER_LOGIN})  •  "
+                            f"[🔴 YouTube](https://www.youtube.com/@{TWITCH_BROADCASTER_LOGIN})  •  "
+                            f"[🎵 TikTok](https://www.tiktok.com/@{TWITCH_BROADCASTER_LOGIN})"
                         ),
                         color=discord.Color.purple(),
                     )
@@ -363,7 +363,7 @@ class TwitchCog(commands.Cog, name="Twitch"):
                 f"**{TWITCH_BROADCASTER_LOGIN}** just hit **{milestone} concurrent viewers**!\n\n"
                 f"👁️ **Current viewers:** {current_viewers:,}\n\n"
                 f"{flavor}\n\n"
-                f"[🟣 Watch on Twitch](https://twitch.tv/pwnedByJT)"
+                f"[🟣 Watch on Twitch](https://twitch.tv/{TWITCH_BROADCASTER_LOGIN})"
             ),
             color=discord.Color.orange(),
         )

@@ -38,8 +38,10 @@ PARROT_USER: str = os.getenv("PARROT_USER", "")
 PARROT_PASS: str = os.getenv("PARROT_PASS", "")
 TWITCH_CLIENT_ID: str = os.getenv("ROOT_AI_TWITCH_CLIENT_ID", "")
 TWITCH_CLIENT_SECRET: str = os.getenv("ROOT_AI_TWITCH_CLIENT_SECRET", "")
-TWITCH_BROADCASTER_LOGIN: str = "pwnedByJT"
-TWITCH_NOTIFY_CHANNEL_ID: int = 1207980068807249930  # Channel to post go-live alerts
+TWITCH_BROADCASTER_LOGIN: str = os.getenv("TWITCH_BROADCASTER_LOGIN", "")
+TWITCH_NOTIFY_CHANNEL_ID: int = int(os.getenv("TWITCH_NOTIFY_CHANNEL_ID", "0"))
+BOT_OWNER_ID: int = int(os.getenv("BOT_OWNER_ID", "0"))
+BOT_OWNER_USERNAME: str = os.getenv("BOT_OWNER_USERNAME", "")
 
 if not DISCORD_TOKEN:
     raise EnvironmentError(
@@ -369,18 +371,18 @@ async def twitch_monitor() -> None:
             channel = bot.get_channel(TWITCH_NOTIFY_CHANNEL_ID)
             if channel:
                 embed = discord.Embed(
-                    title="🔴 pwnedByJT is LIVE!",
+                    title=f"🔴 {TWITCH_BROADCASTER_LOGIN} is LIVE!",
                     description=(
                         "**Watch the stream:**\n"
-                        "[🟣 Twitch](https://twitch.tv/pwnedByJT)  •  "
-                        "[🟩 Kick](https://kick.com/pwnedbyjt)  •  "
-                        "[🔴 YouTube](https://www.youtube.com/@pwnedByJT)  •  "
-                        "[🎵 TikTok](https://www.tiktok.com/@pwnedbyjt)"
+                        f"[🟣 Twitch](https://twitch.tv/{TWITCH_BROADCASTER_LOGIN})  •  "
+                        f"[🟩 Kick](https://kick.com/{TWITCH_BROADCASTER_LOGIN})  •  "
+                        f"[🔴 YouTube](https://www.youtube.com/@{TWITCH_BROADCASTER_LOGIN})  •  "
+                        f"[🎵 TikTok](https://www.tiktok.com/@{TWITCH_BROADCASTER_LOGIN})"
                     ),
                     color=discord.Color.purple(),
                 )
                 await channel.send(
-                    content="@everyone <@389271525485707274>",
+                    content=f"@everyone <@{BOT_OWNER_ID}>",
                     embed=embed,
                 )
             else:
@@ -749,9 +751,9 @@ async def on_message(message: discord.Message) -> None:
         return
 
     # EXCLUSIVE ACCESS LOCKDOWN: Only respond if the sender is you
-    if message.author.name.lower() != "pwnedbyjt":
+    if message.author.name.lower() != BOT_OWNER_USERNAME.lower():
         if bot.user and bot.user.mentioned_in(message):
-            await message.reply("Access Denied: Please get with <@!123456789> if you want me to talk with you.") # Note: If you want this ping to work, you can swap the 123456789 with your actual ID!
+            await message.reply(f"Access Denied: Please get with <@{BOT_OWNER_ID}> if you want me to talk with you.")
         return
 
     # Only respond when directly mentioned

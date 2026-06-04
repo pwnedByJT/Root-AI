@@ -116,6 +116,8 @@ Create a `.env` file in the project root:
 ROOT_AI_DISCORD_TOKEN=your_discord_bot_token_here
 BOT_PREFIX=.
 DISCORD_GUILD_ID=your_discord_server_id_here
+BOT_OWNER_ID=your_discord_user_id
+BOT_OWNER_USERNAME=your_discord_username
 
 # Ollama / LLM
 LOCAL_LLM_URL=http://localhost:11434/v1
@@ -129,6 +131,11 @@ PARROT_PASS=your_parrot_password
 # Twitch
 ROOT_AI_TWITCH_CLIENT_ID=your_twitch_client_id
 ROOT_AI_TWITCH_CLIENT_SECRET=your_twitch_client_secret
+TWITCH_BROADCASTER_LOGIN=your_twitch_username
+TWITCH_NOTIFY_CHANNEL_ID=your_discord_channel_id
+
+# HackTheBox
+HTB_USER_ID=your_htb_user_id
 ```
 
 > **Never commit your `.env` file.** It is already covered by `.gitignore`.
