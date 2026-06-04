@@ -257,5 +257,3 @@ self._chat.register_tool("my_tool_name", my_handler, MY_TOOL_SPEC)
 This project is licensed under the [MIT License](LICENSE).
 
 ---
-
-## 🌀 Magic applied with [Wibey VS Code Extension](https://wibey.walmart.com/code) 🪄
