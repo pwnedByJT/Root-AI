@@ -44,6 +44,7 @@ from openai import AsyncOpenAI
 
 from config import BOT_OWNER_ID, LOCAL_LLM_URL, LOCAL_MODEL_NAME
 from cogs.exploit_suggester import ExploitMatch, search_exploits
+from cogs.nuclei import NucleiFinding, run_nuclei_scan
 from cogs.recon import CVEDetail, ReconResult, _validate_domain, enrich_cves
 from cogs.security import run_parrot_command, run_parrot_nmap_scan
 
@@ -203,6 +204,8 @@ class AutoPwnResult:
     # Phase 7/8 enrichment — populated by _run_react_agent; consumed by Phase 4 export
     enriched_cves: list[CVEDetail] = field(default_factory=list)
     exploit_suggestions: list[ExploitMatch] = field(default_factory=list)
+    # Phase 10 nuclei scan results — populated by _run_react_agent; consumed by Phase 4 export
+    nuclei_findings: list[NucleiFinding] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -240,6 +243,13 @@ async def _run_react_agent(
     """
     result = AutoPwnResult(domain=target, aggressiveness=aggressiveness)
     wall_start = time.monotonic()
+
+    # ── Phase 10: Nuclei template scan (pre-loop — feeds LLM context) ───────
+    await progress_cb("🔬 Running nuclei template scan (critical/high/medium)...")
+    nuclei_scan_results: list[NucleiFinding] = await run_nuclei_scan(
+        target, severity="critical,high,medium"
+    )
+    result.nuclei_findings = nuclei_scan_results
 
     # ── Seed LLM history ────────────────────────────────────────────────────
     messages: list[dict] = [{"role": "system", "content": _REACT_SYSTEM}]
@@ -317,13 +327,41 @@ async def _run_react_agent(
                     + "\n".join(exploit_lines)
                 )
 
+        # Phase 10 — nuclei template scan results
+        if nuclei_scan_results:
+            nuclei_ctx_lines: list[str] = []
+            for f in nuclei_scan_results[:10]:
+                score_str = f" (CVSS {f.cvss_score:.1f})" if f.cvss_score is not None else ""
+                nuclei_ctx_lines.append(
+                    f"  [{f.severity.upper()}] {f.template_id} — {f.name[:60]}{score_str}"
+                )
+            seed_lines.append(
+                f"NUCLEI FINDINGS ({len(nuclei_scan_results)} template match(es)):\n"
+                + "\n".join(nuclei_ctx_lines)
+            )
+
         first_msg = (
             "Phase 1 recon data is available — use it as your starting context:\n\n"
             + "\n\n".join(seed_lines)
             + "\n\nBegin the autonomous assessment. Choose your first action."
         )
     else:
-        first_msg = f"TARGET: {target}\n\nBegin the autonomous assessment. Choose your first action."
+        nuclei_ctx = ""
+        if nuclei_scan_results:
+            nuclei_lines: list[str] = []
+            for f in nuclei_scan_results[:10]:
+                score_str = f" (CVSS {f.cvss_score:.1f})" if f.cvss_score is not None else ""
+                nuclei_lines.append(
+                    f"  [{f.severity.upper()}] {f.template_id} — {f.name[:60]}{score_str}"
+                )
+            nuclei_ctx = (
+                f"\n\nNUCLEI FINDINGS ({len(nuclei_scan_results)} template match(es)):\n"
+                + "\n".join(nuclei_lines)
+            )
+        first_msg = (
+            f"TARGET: {target}{nuclei_ctx}\n\n"
+            "Begin the autonomous assessment. Choose your first action."
+        )
 
     messages.append({"role": "user", "content": first_msg})
 
@@ -334,8 +372,12 @@ async def _run_react_agent(
     taken: set[str] = set()
 
     # ── ReAct loop ───────────────────────────────────────────────────────────
+    # react_start is captured here — AFTER the pre-loop work (nuclei scan,
+    # CVE enrichment, exploit suggester) — so total_timeout applies only to
+    # the ReAct cycles themselves, not to the pre-seeding phase.
+    react_start = time.monotonic()
     for cycle in range(1, profile.max_cycles + 1):
-        if time.monotonic() - wall_start > profile.total_timeout:
+        if time.monotonic() - react_start > profile.total_timeout:
             log.warning("AutoPwn: total_timeout hit at cycle %d — breaking", cycle)
             await progress_cb(f"⏱️ Time cap reached — synthesizing findings...")
             break

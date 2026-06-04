@@ -50,6 +50,7 @@ from discord.ext import commands, tasks
 
 from config import BOT_OWNER_ID, WATCHDOG_CHANNEL_ID, WATCHDOG_DB_PATH, WATCHDOG_INTERVAL_HOURS
 from cogs.exploit_suggester import ExploitMatch, search_exploits
+from cogs.nuclei import NucleiFinding, run_nuclei_scan
 from cogs.recon import (
     CVEDetail,
     ShodanResult,
@@ -524,6 +525,7 @@ def _build_alert_embed(
     diff: ScanDiff,
     enriched_cves: list[CVEDetail] | None = None,
     exploit_suggestions: list[ExploitMatch] | None = None,
+    nuclei_findings: list[NucleiFinding] | None = None,
 ) -> discord.Embed:
     """Alert embed posted to WATCHDOG_CHANNEL_ID when new assets are detected."""
     change_count = (
@@ -626,6 +628,19 @@ def _build_alert_embed(
             inline=False,
         )
 
+    if nuclei_findings:
+        _sev_emoji = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🔵", "info": "⚪"}
+        lines = []
+        for f in nuclei_findings[:5]:
+            emoji = _sev_emoji.get(f.severity, "•")
+            name_trunc = f.name[:55] if len(f.name) > 55 else f.name
+            lines.append(f"{emoji} `{f.template_id}` — {name_trunc}")
+        embed.add_field(
+            name=f"🔬 Nuclei Findings ({len(nuclei_findings)})",
+            value=_truncate_field(lines),
+            inline=False,
+        )
+
     embed.set_footer(text=_FOOTER)
     return embed
 
@@ -637,6 +652,7 @@ def _build_scan_embed(
     baseline_sub_count: int,
     enriched_cves: list[CVEDetail] | None = None,
     exploit_suggestions: list[ExploitMatch] | None = None,
+    nuclei_findings: list[NucleiFinding] | None = None,
 ) -> discord.Embed:
     """Ephemeral embed returned to the user for an on-demand /watchdog scan."""
     has_changes = diff.has_changes
@@ -744,6 +760,19 @@ def _build_scan_embed(
             lines.append(f"`EDB-{e.edb_id}` [{e.exploit_type}/{e.platform}] {title}")
         embed.add_field(
             name=f"💣 Known Exploits ({len(exploit_suggestions)})",
+            value=_truncate_field(lines),
+            inline=False,
+        )
+
+    if nuclei_findings:
+        _sev_emoji = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🔵", "info": "⚪"}
+        lines = []
+        for f in nuclei_findings[:5]:
+            emoji = _sev_emoji.get(f.severity, "•")
+            name_trunc = f.name[:55] if len(f.name) > 55 else f.name
+            lines.append(f"{emoji} `{f.template_id}` — {name_trunc}")
+        embed.add_field(
+            name=f"🔬 Nuclei Findings ({len(nuclei_findings)})",
             value=_truncate_field(lines),
             inline=False,
         )
@@ -929,6 +958,28 @@ class WatchdogCog(commands.Cog, name="Watchdog"):
                 )
                 exploit_suggestions = await search_exploits(critical_ids[:3])
 
+        # ── Phase 10: Nuclei scan against new subdomains (critical+high) ─────
+        watchdog_nuclei: list[NucleiFinding] = []
+        if diff.new_subs:
+            nuclei_targets = diff.new_subs[:3]
+            log.info(
+                "Watchdog: running nuclei against %d new subdomain(s) for %s",
+                len(nuclei_targets),
+                domain,
+            )
+            for sub in nuclei_targets:
+                sub_findings = await run_nuclei_scan(sub, severity="critical,high")
+                watchdog_nuclei.extend(sub_findings)
+            # Deduplicate merged results
+            seen_keys: set[str] = set()
+            deduped: list[NucleiFinding] = []
+            for f in watchdog_nuclei:
+                key = f"{f.template_id}:{f.matched_url}"
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    deduped.append(f)
+            watchdog_nuclei = deduped[:25]
+
         # ── Interactive: always reply with scan embed ─────────────────────────
         if interactive and interaction:
             embed = _build_scan_embed(
@@ -938,6 +989,7 @@ class WatchdogCog(commands.Cog, name="Watchdog"):
                 baseline_sub_count=len(baseline_subs),
                 enriched_cves=enriched_cves or None,
                 exploit_suggestions=exploit_suggestions or None,
+                nuclei_findings=watchdog_nuclei or None,
             )
             await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -954,6 +1006,7 @@ class WatchdogCog(commands.Cog, name="Watchdog"):
                 diff,
                 enriched_cves=enriched_cves or None,
                 exploit_suggestions=exploit_suggestions or None,
+                nuclei_findings=watchdog_nuclei or None,
             )
             await channel.send(embed=embed)  # type: ignore[union-attr]
             log.info(
