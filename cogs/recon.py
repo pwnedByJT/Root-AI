@@ -741,6 +741,36 @@ class ReconView(discord.ui.View):
             return
         await ssl_cog.start_ssl_check(interaction, self.result.domain)
 
+    @discord.ui.button(
+        label="Stack",
+        style=discord.ButtonStyle.secondary,
+        emoji="🔍",
+    )
+    async def stack_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        """Phase 16 integration point — Web technology fingerprinting for the recon domain."""
+        if interaction.user.id != BOT_OWNER_ID:
+            await interaction.response.send_message(
+                "⛔ **Web Fingerprinter** is restricted to the server administrator.",
+                ephemeral=True,
+            )
+            return
+
+        button.disabled = True
+        button.label = "⏳ Scanning..."
+        button.emoji = discord.PartialEmoji(name="⏳")
+        await interaction.response.edit_message(view=self)
+
+        fp_cog = interaction.client.get_cog("WebFingerprinter")
+        if fp_cog is None:
+            await interaction.followup.send(
+                "⚠️ WebFingerprinter cog is not loaded — check bot startup logs.",
+                ephemeral=True,
+            )
+            return
+        await fp_cog.start_fingerprint(interaction, self.result.domain)
+
     async def on_timeout(self) -> None:
         """Disable all buttons when the view expires to prevent stale interactions."""
         for item in self.children:
