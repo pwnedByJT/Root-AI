@@ -711,6 +711,36 @@ class ReconView(discord.ui.View):
             return
         await whois_cog.start_whois(interaction, self.result.domain)
 
+    @discord.ui.button(
+        label="SSL",
+        style=discord.ButtonStyle.secondary,
+        emoji="🔒",
+    )
+    async def ssl_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        """Phase 15 integration point — SSL/TLS inspection for the recon domain."""
+        if interaction.user.id != BOT_OWNER_ID:
+            await interaction.response.send_message(
+                "⛔ **SSL Inspector** is restricted to the server administrator.",
+                ephemeral=True,
+            )
+            return
+
+        button.disabled = True
+        button.label = "⏳ Scanning..."
+        button.emoji = discord.PartialEmoji(name="⏳")
+        await interaction.response.edit_message(view=self)
+
+        ssl_cog = interaction.client.get_cog("SSLInspector")
+        if ssl_cog is None:
+            await interaction.followup.send(
+                "⚠️ SSLInspector cog is not loaded — check bot startup logs.",
+                ephemeral=True,
+            )
+            return
+        await ssl_cog.start_ssl_check(interaction, self.result.domain)
+
     async def on_timeout(self) -> None:
         """Disable all buttons when the view expires to prevent stale interactions."""
         for item in self.children:
