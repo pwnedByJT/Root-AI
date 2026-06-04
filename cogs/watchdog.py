@@ -838,6 +838,7 @@ class WatchdogCog(commands.Cog, name="Watchdog"):
         *,
         interactive: bool = False,
         interaction: Optional[discord.Interaction] = None,
+        brute: bool = False,
     ) -> None:
         """
         Scan *domain*, diff against baseline, and post results.
@@ -889,6 +890,23 @@ class WatchdogCog(commands.Cog, name="Watchdog"):
             return
 
         current_subs: list[str] = gather_result  # type: ignore[assignment]
+
+        # ── Optional active brute-force (opt-in via watchdog scan --brute) ─────
+        if brute:
+            from cogs.subdomain_brute import brute_subdomains  # local import — avoids circular
+            brute_result = await brute_subdomains(domain, wordlist="small")
+            if (
+                not brute_result.wildcard_detected
+                and not brute_result.error
+                and brute_result.found
+            ):
+                current_subs = sorted(set(current_subs) | set(brute_result.found))
+                log.info(
+                    "Watchdog: brute added %d subdomain(s) for %s (total now %d)",
+                    len(brute_result.found),
+                    domain,
+                    len(current_subs),
+                )
 
         sd: Optional[ShodanResult] = None
         if isinstance(shodan_result, Exception):
@@ -1117,8 +1135,13 @@ class WatchdogCog(commands.Cog, name="Watchdog"):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @watchdog.command(name="scan", description="[OWNER] Immediately scan a tracked domain.")
-    @app_commands.describe(domain="Domain to scan right now")
-    async def watchdog_scan(self, interaction: discord.Interaction, domain: str) -> None:
+    @app_commands.describe(
+        domain="Domain to scan right now",
+        brute="Also run active DNS brute-force via gobuster (adds ~60s)",
+    )
+    async def watchdog_scan(
+        self, interaction: discord.Interaction, domain: str, brute: bool = False
+    ) -> None:
         if interaction.user.id != BOT_OWNER_ID:
             await interaction.response.send_message(
                 "⛔ `/watchdog` is an owner-only command.", ephemeral=True
@@ -1148,6 +1171,7 @@ class WatchdogCog(commands.Cog, name="Watchdog"):
             channel_id,
             interactive=True,
             interaction=interaction,
+            brute=brute,
         )
 
 

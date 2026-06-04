@@ -649,6 +649,38 @@ class ReconView(discord.ui.View):
             return
         await autopwn_cog.start_autopwn(interaction, self.result)
 
+    @discord.ui.button(
+        label="Brute Subs",
+        style=discord.ButtonStyle.secondary,
+        emoji="🔨",
+    )
+    async def brute_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        """Phase 12 integration point — active DNS brute-force via gobuster."""
+        if interaction.user.id != BOT_OWNER_ID:
+            await interaction.response.send_message(
+                "⛔ **Brute Subs** is restricted to the server administrator.",
+                ephemeral=True,
+            )
+            return
+
+        button.disabled = True
+        button.label = "⏳ Bruting..."
+        button.emoji = discord.PartialEmoji(name="⏳")
+        await interaction.response.edit_message(view=self)
+
+        brute_cog = interaction.client.get_cog("SubdomainBrute")
+        if brute_cog is None:
+            await interaction.followup.send(
+                "⚠️ SubdomainBrute cog is not loaded — check bot startup logs.",
+                ephemeral=True,
+            )
+            return
+        await brute_cog.start_brute(
+            interaction, self.result.domain, passive_known=self.result.subdomains
+        )
+
     async def on_timeout(self) -> None:
         """Disable all buttons when the view expires to prevent stale interactions."""
         for item in self.children:
