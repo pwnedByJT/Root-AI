@@ -1,5 +1,9 @@
 # 🤖 Root AI — Discord Security Pipeline Bot
 
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Python](https://img.shields.io/badge/python-3.11%2B-blue)
+![discord.py](https://img.shields.io/badge/discord.py-2.x-5865F2)
+
 A production-ready Discord bot with a **local Ollama LLM integration**, SSH-based nmap scanning, Discord moderation tools, and a Twitch live-stream monitor — refactored into a clean, modular **Discord.py Cogs** architecture.
 
 ---
@@ -245,6 +249,12 @@ self._chat.register_tool("my_tool_name", my_handler, MY_TOOL_SPEC)
 | Ban Members | `moderation.py` — ban command |
 | Message Content Intent | `ai_chat.py` — reading @mention content |
 | Server Members Intent | `moderation.py` — resolving user IDs to members |
+
+---
+
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE).
 
 ---
 
