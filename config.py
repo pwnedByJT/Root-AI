@@ -53,6 +53,8 @@ GITHUB_PAT: str = os.getenv("GITHUB_PAT", "")
 # HTB_API_TOKEN: generate at https://app.hackthebox.com/profile/settings → App Tokens
 HTB_API_TOKEN: str = os.getenv("HTB_API_TOKEN", "")
 HTB_USER_ID: int = int(os.getenv("HTB_USER_ID", "0"))
+# HTB_USERNAME: your HackTheBox username (may differ from your Discord username)
+HTB_USERNAME: str = os.getenv("HTB_USERNAME", "")
 # SEC_MONITOR_CHANNEL_ID: Discord channel where streak-danger alerts are posted
 SEC_MONITOR_CHANNEL_ID: int = int(os.getenv("SEC_MONITOR_CHANNEL_ID", "0"))
 

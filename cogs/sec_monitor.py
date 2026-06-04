@@ -62,7 +62,7 @@ log = logging.getLogger("root_ai.sec_monitor")
 # Identity — update here if the username ever changes
 # ---------------------------------------------------------------------------
 
-HTB_USERNAME: str = config.BOT_OWNER_USERNAME
+HTB_USERNAME: str = config.HTB_USERNAME
 
 # ---------------------------------------------------------------------------
 # Streak danger threshold

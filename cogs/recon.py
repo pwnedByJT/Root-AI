@@ -318,8 +318,7 @@ async def _shodan_host_info(domain: str) -> Optional[ShodanResult]:
                 continue  # normal — host not indexed
             if "invalid api key" in msg or "access denied" in msg:
                 log.error("Shodan: API key rejected — %s", exc)
-                result  # return whatever we have so far
-                break
+                return result  # return whatever we have so far
             log.warning("Shodan: API error for %s: %s", ip, exc)
             continue
         except Exception as exc:  # pylint: disable=broad-except
