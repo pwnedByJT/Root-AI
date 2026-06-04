@@ -52,6 +52,7 @@ EXTENSIONS = [
     "cogs.watchdog",          # Phase 5 Bug Bounty Watchdog — /watchdog + background loop
     "cogs.exploit_suggester", # Phase 8 Exploit Suggester — /exploits + search_exploits()
     "cogs.poc_hunter",        # Phase 13 CVE PoC Hunter — /poc + fetch_poc_repos()
+    "cogs.whois_mapper",      # Phase 14 WHOIS & ASN Mapper — /whois + start_whois()
     "cogs.ai_chat",           # Always last — consumes all registered tools
 ]
 

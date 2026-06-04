@@ -65,6 +65,11 @@ SHODAN_API_KEY: str = os.getenv("SHODAN_API_KEY", "")
 # Register free at: https://nvd.nist.gov/developers/request-an-api-key
 NVD_API_KEY: str = os.getenv("NVD_API_KEY", "")
 
+# ── Phase 14 WHOIS & ASN Mapper ──────────────────────────────────────────────
+# Optional: ipinfo.io API token raises the free tier from 50k to unlimited req/month.
+# Generate at: https://ipinfo.io/account/token
+IPINFO_TOKEN: str = os.getenv("IPINFO_TOKEN", "")
+
 # ── Phase 5 Bug Bounty Watchdog ───────────────────────────────────────────────
 # WATCHDOG_CHANNEL_ID: Discord channel where new-asset alerts are posted
 WATCHDOG_CHANNEL_ID: int = int(os.getenv("WATCHDOG_CHANNEL_ID", "0"))

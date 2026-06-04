@@ -681,6 +681,36 @@ class ReconView(discord.ui.View):
             interaction, self.result.domain, passive_known=self.result.subdomains
         )
 
+    @discord.ui.button(
+        label="WHOIS",
+        style=discord.ButtonStyle.secondary,
+        emoji="🌍",
+    )
+    async def whois_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        """Phase 14 integration point — WHOIS & ASN lookup for the recon domain."""
+        if interaction.user.id != BOT_OWNER_ID:
+            await interaction.response.send_message(
+                "⛔ **WHOIS** is restricted to the server administrator.",
+                ephemeral=True,
+            )
+            return
+
+        button.disabled = True
+        button.label = "⏳ Looking up..."
+        button.emoji = discord.PartialEmoji(name="⏳")
+        await interaction.response.edit_message(view=self)
+
+        whois_cog = interaction.client.get_cog("WhoisMapper")
+        if whois_cog is None:
+            await interaction.followup.send(
+                "⚠️ WhoisMapper cog is not loaded — check bot startup logs.",
+                ephemeral=True,
+            )
+            return
+        await whois_cog.start_whois(interaction, self.result.domain)
+
     async def on_timeout(self) -> None:
         """Disable all buttons when the view expires to prevent stale interactions."""
         for item in self.children:
