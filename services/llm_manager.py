@@ -46,7 +46,7 @@ _NARRATION_RE = re.compile(
 # Catches direct "I will not call / there is no tool call" statements
 _NO_CALL_RE = re.compile(
     r"(?:"
-    r"I\s+(?:will|won't|am\s+not\s+going\s+to|shall\s+not|do\s+not\s+need\s+to)\s+"
+    r"I\s+(?:will\s+not|won't|am\s+not\s+going\s+to|shall\s+not|do\s+not\s+need\s+to)\s+"
     r"(?:make|invoke|call|use)\s+(?:any\s+)?(?:a\s+)?(?:function|tool)(?:\s+call)?"
     r"|"
     r"there\s+is\s+no\s+(?:function|tool)\s+call\s+(?:to\s+be\s+made|needed|necessary|required)"
