@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections import defaultdict, deque
 from typing import TYPE_CHECKING, Callable, Coroutine, Any
 
@@ -28,6 +29,51 @@ if TYPE_CHECKING:
     pass
 
 log = logging.getLogger("root_ai.llm")
+
+# ---------------------------------------------------------------------------
+# Output sanitization — strip LLM tool-call narration and empty JSON blobs
+# ---------------------------------------------------------------------------
+
+# Catches sentences where the model explains it won't call a tool:
+# e.g. "Since this question does not contain ... there is no function call to be made."
+_NARRATION_RE = re.compile(
+    r"(?:since|as|because)\s+this\s+(?:question|request|message|query)"
+    r"[^.!?\n]{0,300}"
+    r"(?:tool|function|call)[^.!?\n]*\.?\s*",
+    re.IGNORECASE,
+)
+
+# Catches direct "I will not call / there is no tool call" statements
+_NO_CALL_RE = re.compile(
+    r"(?:"
+    r"I\s+(?:will|won't|am\s+not\s+going\s+to|shall\s+not|do\s+not\s+need\s+to)\s+"
+    r"(?:make|invoke|call|use)\s+(?:any\s+)?(?:a\s+)?(?:function|tool)(?:\s+call)?"
+    r"|"
+    r"there\s+is\s+no\s+(?:function|tool)\s+call\s+(?:to\s+be\s+made|needed|necessary|required)"
+    r")\.?\s*",
+    re.IGNORECASE,
+)
+
+# Catches {"name": None, "parameters": {}} and {"name": null, "parameters": {…}}
+_EMPTY_JSON_RE = re.compile(
+    r'\{\s*"name"\s*:\s*(?:None|null)\s*,\s*"parameters"\s*:\s*\{[^}]*\}\s*\}',
+    re.IGNORECASE,
+)
+
+
+def _sanitize_response(text: str) -> str:
+    """
+    Strip LLM tool-call narration and empty JSON from LLM-generated text.
+
+    Applied ONLY to LLM-generated text paths (no-tool reply and fallback).
+    Raw tool output (nmap, Discord mentions, etc.) bypasses this function.
+    """
+    text = _NARRATION_RE.sub("", text)
+    text = _NO_CALL_RE.sub("", text)
+    text = _EMPTY_JSON_RE.sub("", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
 
 # ---------------------------------------------------------------------------
 # System prompt
@@ -97,6 +143,14 @@ SYSTEM_PROMPT = (
     "a tool call is necessary or unnecessary in your response. Jump straight to the "
     "answer. Never include introductory filler like 'Here is the response:' or "
     "meta-commentary about the user's intent.\n"
+    "- NEVER narrate your tool-calling decisions. Do NOT output phrases like "
+    "'Since this question does not require a tool call', 'I will not invoke any "
+    "function', 'there is no function call to be made', or any similar statement "
+    "explaining that you chose not to use a tool. Simply answer the question directly.\n"
+    "- NEVER output raw JSON in your response text. If no tool call is warranted, "
+    "respond with plain natural language only. Do NOT emit objects like "
+    '{\"name\": null, \"parameters\": {}} '
+    "or any empty / null function-call payloads.\n"
     "- Act as a concise terminal interface for commands, but be polite and engaging "
     "during casual chat."
 )
@@ -264,9 +318,11 @@ class ChatContextManager:
                 )
                 fallback_messages = self._build_messages(history, author_info, stream_context)
                 fallback_response = await self._call_llm(fallback_messages, tools=None)
-                final_text = fallback_response.choices[0].message.content or ""
+                final_text = _sanitize_response(
+                    fallback_response.choices[0].message.content or ""
+                )
                 history.append({"role": "assistant", "content": final_text})
-                return final_text.strip()
+                return final_text
 
             # ── Tool execution (only predicate-passing calls) ────────────
             tool_results = []
@@ -288,9 +344,8 @@ class ChatContextManager:
             history.append({"role": "assistant", "content": final_text})
             return final_text.strip()
 
-        # No tool call — return first-pass text directly
-        final_text = assistant_msg.content or ""
-        return final_text.strip()
+        # No tool call — return sanitized first-pass text
+        return _sanitize_response(assistant_msg.content or "")
 
     # ------------------------------------------------------------------
     # Private helpers
